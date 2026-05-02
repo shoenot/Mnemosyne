@@ -3,6 +3,13 @@
 use core::panic::PanicInfo;
 use core::arch::asm;
 
+mod serial;
+use serial::{
+    init_serial, 
+    log_to_serial,
+    log_u32_to_serial,
+};
+
 use limine::{
     BaseRevision,
     RequestsStartMarker,
@@ -63,6 +70,11 @@ pub extern "C" fn kmain() -> ! {
                 }
             }
         }
+    }
+    unsafe {
+        init_serial();
+        log_to_serial("hello, world!");
+        log_u32_to_serial(232839);
     }
 
     hcf();
