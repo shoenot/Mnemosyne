@@ -12,24 +12,23 @@ use limine::request::FramebufferRequest;
 
 #[used]
 #[unsafe(no_mangle)]
-#[unsafe(link_section = ".kernel_reqs")]
+#[unsafe(link_section = ".base_revision")]
 static BASE_REVISION: BaseRevision = BaseRevision::new();
-
-#[repr(C)]
-struct KernelRequests {
-    start: RequestsStartMarker,
-    fb: FramebufferRequest,
-    end: RequestsEndMarker,
-}
 
 #[used]
 #[unsafe(no_mangle)]
-#[unsafe(link_section = ".kernel_reqs")]
-static REQUESTS: KernelRequests = KernelRequests {
-    start: RequestsStartMarker::new(),
-    fb: FramebufferRequest::new(),
-    end: RequestsEndMarker::new(),
-};
+#[unsafe(link_section = ".requests")]
+static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
+
+#[used]
+#[unsafe(no_mangle)]
+#[unsafe(link_section = ".requests_start")]
+static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
+
+#[used]
+#[unsafe(no_mangle)]
+#[unsafe(link_section = ".requests_end")]
+static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
@@ -51,7 +50,7 @@ pub extern "C" fn kmain() -> ! {
         hcf();
     }
 
-    if let Some(fb_response) = REQUESTS.fb.response() {
+    if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
         if let Some(fb) = fb_response.framebuffers().first() {
             let pixels_per_row = fb.pitch / 4;
             let total_pixels = pixels_per_row * fb.height;
