@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-use core::panic::PanicInfo;
+use core::panic::PanicInfo; 
 use core::arch::asm;
 
 mod serial;
@@ -12,6 +12,12 @@ use serial::{
 
 mod gdt;
 use gdt::init_gdt;
+
+mod idt;
+use idt::*;
+
+mod graphics;
+use graphics::*;
 
 use limine::{
     BaseRevision,
@@ -62,23 +68,17 @@ pub extern "C" fn kmain() -> ! {
 
     unsafe {
         init_serial();
-        log_to_serial("hello, world!");
-        log_u32_to_serial(232839);
+        log_to_serial("\x1B[2J\x1B[H");
+        log_to_serial("INITIATING GDT... ");
         init_gdt();
+        log_to_serial("INITIATING IDT... ");
+        init_idt();
+        log_to_serial("hello, world!\n");
     }
 
     if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
         if let Some(fb) = fb_response.framebuffers().first() {
-            let pixels_per_row = fb.pitch / 4;
-            let total_pixels = pixels_per_row * fb.height;
-
-            let ptr = fb.address().cast::<u32>();
-
-            for i in 0..total_pixels {
-                unsafe {
-                    ptr.add(i as usize).write_volatile(0x00FFFF);
-                }
-            }
+            draw_diagonal(fb);
         }
     }
 

@@ -2,6 +2,7 @@ use core::arch::asm;
 use core::ptr::addr_of;
 use core::mem::size_of_val;
 use lazy_static::lazy_static;
+use crate::serial::log_to_serial;
 
 #[repr(C, packed)]
 struct GDTEntry {
@@ -109,7 +110,7 @@ pub unsafe fn init_gdt() {
 
     unsafe {
         asm!(
-            "lgdtq {ptr}",
+            "lgdt ({ptr})",
             "pushq $0x08",
             "leaq 1f(%rip), {tmp}",
             "pushq {tmp}",
@@ -133,4 +134,6 @@ pub unsafe fn init_gdt() {
             options(att_syntax, nostack, preserves_flags)
         )
     }
+
+    log_to_serial("GDT INIT OK\n");
 }

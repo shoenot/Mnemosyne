@@ -3,11 +3,14 @@ MAKEFLAGS += -rR
 .SUFFIXES:
 
 # --- Configuration ---
-BIN_NAME   := shoes
-KARCH      := x86_64
+BIN_NAME    := shoes
+KARCH       := x86_64
 TARGET_NAME := x86_64-unknown-none
-IMAGE_NAME := $(BIN_NAME)-$(KARCH)
-QEMUFLAGS  := -m 2G
+IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
+QEMUFLAGS   := -m 2G
+
+# --- Toolchain ---
+AS := /home/shurjo/build/cross/bin/x86_64-elf-as
 
 # The path where Cargo will output your kernel ELF
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
@@ -32,9 +35,13 @@ run-bios: $(IMAGE_NAME).iso
 		-boot d \
 		$(QEMUFLAGS)
 
-# Build the Rust kernel
+# --- Assembly Build Step ---
+build/idt.o: src/idt.S
+	@mkdir -p build
+	$(AS) src/idt.S -o build/idt.o
+
 .PHONY: kernel
-kernel:
+kernel: build/idt.o
 	cargo build --release --target $(TARGET_NAME)
 
 # ISO Creation (Hybrid BIOS/UEFI)
@@ -74,7 +81,7 @@ edk2-ovmf:
 .PHONY: clean
 clean:
 	cargo clean
-	rm -rf iso_root $(IMAGE_NAME).iso
+	rm -rf iso_root $(IMAGE_NAME).iso build
 
 .PHONY: distclean
 distclean: clean
