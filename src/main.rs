@@ -61,7 +61,7 @@ fn hcf() -> ! {
     }
 }
 
-const FONT_DATA: &[u8] = include_bytes!("../zap-ext-light16.psf");
+const FONT_DATA: &[u8] = include_bytes!("../build_deps/zap-ext-light16.psf");
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {

@@ -16,28 +16,28 @@ AS := /home/shurjo/build/cross/bin/x86_64-elf-as
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
 
 .PHONY: all
-all: $(IMAGE_NAME).iso
+all: build/$(IMAGE_NAME).iso
 
 .PHONY: run
-run: edk2-ovmf $(IMAGE_NAME).iso
+run: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
 		-M q35 \
-		-drive if=pflash,unit=0,format=raw,file=edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
-		-cdrom $(IMAGE_NAME).iso \
+		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
+		-cdrom build/$(IMAGE_NAME).iso \
 		$(QEMUFLAGS) \
 		-serial stdio 
 
 .PHONY: run-bios
-run-bios: $(IMAGE_NAME).iso
+run-bios: build/$(IMAGE_NAME).iso
 	qemu-system-x86_64 \
 		-M q35 \
-		-cdrom $(IMAGE_NAME).iso \
+		-cdrom build/$(IMAGE_NAME).iso \
 		-boot d \
 		$(QEMUFLAGS)
 
 # --- Assembly Build Step ---
 build/idt.o: src/arch/x86_64/interrupts/idt.S
-	@mkdir -p build
+	mkdir -p build/
 	$(AS) src/arch/x86_64/interrupts/idt.S -o build/idt.o
 
 .PHONY: kernel
@@ -45,44 +45,46 @@ kernel: build/idt.o
 	cargo build --release --target $(TARGET_NAME)
 
 # ISO Creation (Hybrid BIOS/UEFI)
-$(IMAGE_NAME).iso: limine/limine kernel
+build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
+	mkdir -p build
 	rm -rf iso_root
 	mkdir -p iso_root/boot/limine
 	mkdir -p iso_root/EFI/BOOT
 	
 	# Copy the kernel from the cargo target directory
 	cp -v $(KERNEL_ELF) iso_root/boot/kernel
-	cp -v limine.conf iso_root/boot/limine/
+	cp -v build_deps/limine.conf iso_root/boot/limine/
 	
 	# x86_64 Specific Limine binaries
-	cp -v limine/limine-bios.sys limine/limine-bios-cd.bin limine/limine-uefi-cd.bin iso_root/boot/limine/
-	cp -v limine/BOOTX64.EFI iso_root/EFI/BOOT/
-	cp -v limine/BOOTIA32.EFI iso_root/EFI/BOOT/
+	cp -v build_deps/limine/limine-bios.sys build_deps/limine/limine-bios-cd.bin build_deps/limine/limine-uefi-cd.bin iso_root/boot/limine/
+	cp -v build_deps/limine/BOOTX64.EFI iso_root/EFI/BOOT/
+	cp -v build_deps/limine/BOOTIA32.EFI iso_root/EFI/BOOT/
 	
 	xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot boot/limine/limine-uefi-cd.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \
-		iso_root -o $(IMAGE_NAME).iso
+		iso_root -o build/$(IMAGE_NAME).iso
 	
-	./limine/limine bios-install $(IMAGE_NAME).iso
+	./build_deps/limine/limine bios-install build/$(IMAGE_NAME).iso
 	rm -rf iso_root
 
 # External Dependencies (Limine and OVMF)
-limine/limine:
-	rm -rf limine
-	mkdir -p limine
-	curl -sL https://github.com/limine-bootloader/limine/releases/latest/download/limine-binary.tar.gz | tar -xz --strip-components=1 -C limine
-	$(MAKE) -C limine
+build_deps/limine/limine:
+	rm -rf build_deps/limine
+	mkdir -p build_deps/limine
+	curl -sL https://github.com/limine-bootloader/limine/releases/latest/download/limine-binary.tar.gz | tar -xz --strip-components=1 -C build_deps/limine
+	$(MAKE) -C build_deps/limine
 
-edk2-ovmf:
-	curl -L https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/edk2-ovmf.tar.gz | gunzip | tar -xf -
+build_deps/edk2-ovmf/ovmf-code-x86_64.fd:
+	mkdir -p build_deps
+	curl -L https://github.com/osdev0/edk2-ovmf-nightly/releases/latest/download/edk2-ovmf.tar.gz | tar -xzf - -C build_deps/
 
 .PHONY: clean
 clean:
 	cargo clean
-	rm -rf iso_root $(IMAGE_NAME).iso build
+	rm -rf iso_root build
 
 .PHONY: distclean
 distclean: clean
-	rm -rf limine edk2-ovmf
+	rm -rf build_deps/limine build_deps/edk2-ovmf
