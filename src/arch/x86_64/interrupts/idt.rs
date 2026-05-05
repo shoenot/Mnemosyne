@@ -1,6 +1,6 @@
 use core::arch::asm;
 use lazy_static::lazy_static;
-use crate::drivers::serial::log_to_serial;
+use crate::drivers::serial::{log_to_serial, log_u64_to_serial};
 use crate::hcf;
 
 #[repr(C, packed)]
@@ -112,9 +112,25 @@ pub struct InterruptStackFrame {
 pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
     match frame.interrupt_number {
         13 => log_to_serial("general protection fault.\n"),
-        14 => log_to_serial("page fault.\n"),
+        14 => {
+            let pfaddr = page_fault_address();
+            let error_code = frame.error_code;
+            log_to_serial("page fault at: ");
+            log_u64_to_serial(pfaddr);
+            log_to_serial(" with error code: ");
+            log_u64_to_serial(error_code);
+        },
         15 => log_to_serial("unexpected interrupt.\n"),
         _ => {},
     }
     hcf();
+}
+
+fn page_fault_address() -> u64 {
+    let cr2: u64;
+    unsafe {
+        asm!("movq %cr2, {0}", out(reg) cr2, options(att_syntax, nostack, preserves_flags));
+    };
+    log_to_serial("page fault at: ");
+    cr2
 }
