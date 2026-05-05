@@ -18,7 +18,16 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    pub fn init() -> Self {
+    pub const fn new() -> Self {
+        Self {
+            freelist: [0; ORDER_MAX + 1],
+            metadata: &mut [],
+            metadata_phys_addr: 0,
+            meta_bit_offset: [0; ORDER_MAX + 1],
+        }
+    }
+
+    pub fn init(&mut self) {
         let mut init_allocator = BitmapPMM::init();
         let max_addr = init_allocator.max_addr;
         let metadata_size = max_addr / (PAGE_SIZE * 8);
@@ -39,24 +48,20 @@ impl Allocator {
             current_offset += (total_pages >> order) / 2;
         }
 
-        let mut allocator = Allocator { 
-            freelist: [0; ORDER_MAX + 1], 
-            metadata: metadata_slice, 
-            metadata_phys_addr: meta_phys,
-            meta_bit_offset,
-        };
+        self.freelist = [0; ORDER_MAX + 1];
+        self.metadata = metadata_slice;
+        self.metadata_phys_addr = meta_phys;
+        self.meta_bit_offset = meta_bit_offset;
 
         for frame in 0..init_allocator.total_frames {
             if init_allocator.is_free(frame) {
                 let frame_addr = frame * PAGE_SIZE;
-                allocator.free(frame_addr, 0);
+                self.free(frame_addr, 0);
             }
         }
         
         log_to_serial("Primary Allocator metadata stored at ");
         log_u64_to_serial(meta_phys as u64);
-
-        allocator
     }
 
     pub fn alloc(&mut self, mut order: usize) -> Option<usize> {

@@ -1,13 +1,16 @@
 #![no_std]
 #![no_main]
+mod arch;
+mod drivers;
+mod kernel;
+mod boot;
+
 use core::panic::PanicInfo; 
 use core::arch::asm;
 use simple_psf::Psf;
 use simple_psf::ParseError;
 
-mod arch;
-mod drivers;
-mod kernel;
+pub use boot::*;
 
 use drivers::serial::{
     init_serial, 
@@ -21,47 +24,9 @@ use arch::x86_64::interrupts::idt::init_idt;
 
 use drivers::graphics::*;
 
-use limine::{
-    BaseRevision,
-    RequestsStartMarker,
-    RequestsEndMarker,
-};
+use crate::kernel::spin::SpinLock;
 
-use limine::request::{
-    FramebufferRequest,
-    MemmapRequest,
-    HhdmRequest,
-};
-
-#[used]
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".requests")]
-static BASE_REVISION: BaseRevision = BaseRevision::with_revision(6 as u64);
-
-#[used]
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".requests")]
-static FRAMEBUFFER_REQUEST: FramebufferRequest = FramebufferRequest::new();
-
-#[used]
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".requests")]
-pub static MEMMAP_REQUEST: MemmapRequest = MemmapRequest::new();
-
-#[used]
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".requests")]
-pub static HHDM_REQUEST: HhdmRequest = HhdmRequest::new();
-
-#[used]
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".requests_start")]
-static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
-
-#[used]
-#[unsafe(no_mangle)]
-#[unsafe(link_section = ".requests_end")]
-static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
+static ALLOCATOR: SpinLock<Allocator> = SpinLock::new(Allocator::new());
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -120,10 +85,15 @@ pub extern "C" fn kmain() -> ! {
     writeline("Hello, world!", 0, 0, &font, fb);
 
     writeline("Initiating PMM... ", 1, 0, &font, fb);
-    let allocator = Allocator::init();
+    
+    let meta_addr = {
+        let mut allocator = ALLOCATOR.lock();
+        allocator.init();
+        allocator.metadata_phys_addr
+    };
 
     writeline("Physical Memory Allocator initiated. Metatdata stored at: ", 2, 0, &font, fb);
-    writenumber(allocator.metadata_phys_addr as u64, 2, 60, &font, fb);
+    writenumber(meta_addr as u64, 2, 60, &font, fb);
 
     writeline("test", 3, 0, &font, fb);
     hcf();
