@@ -1,2 +1,2 @@
 pub mod memory;
-pub mod spin;
+pub mod lock;

@@ -24,9 +24,9 @@ use arch::x86_64::interrupts::idt::init_idt;
 
 use drivers::graphics::*;
 
-use crate::kernel::spin::SpinLock;
+use crate::kernel::lock::TicketLock;
 
-static ALLOCATOR: SpinLock<Allocator> = SpinLock::new(Allocator::new());
+static ALLOCATOR: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
