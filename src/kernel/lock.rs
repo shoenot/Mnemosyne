@@ -1,9 +1,14 @@
 use core::{
-    arch::asm, cell::UnsafeCell, ops::{Deref, DerefMut}, sync::atomic::{
-        AtomicBool, AtomicUsize, Ordering::{Acquire, Relaxed, Release}
-    }
+    arch::asm, 
+    cell::UnsafeCell, 
+    hint::spin_loop,
+    ops::{Deref, DerefMut}, 
+    sync::atomic::{
+        AtomicBool, 
+        AtomicUsize, 
+        Ordering::{Acquire, Relaxed, Release}
+    },
 };
-use core::hint::spin_loop;
 
 #[inline]
 fn interrupts_enabled() -> bool {

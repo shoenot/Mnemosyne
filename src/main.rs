@@ -4,33 +4,34 @@ mod arch;
 mod drivers;
 mod kernel;
 mod boot;
+mod tests;
 
-use core::panic::PanicInfo; 
-use core::arch::asm;
-use core::fmt::Write;
-use simple_psf::Psf;
-use simple_psf::ParseError;
+extern crate alloc;
 
+use core::{
+    panic::PanicInfo, 
+    arch::asm, 
+    fmt::Write
+};
+use simple_psf::*;
 pub use boot::*;
 
-use drivers::serial::{
-    init_serial, 
-    log_to_serial,
-};
+use drivers::serial::*;
+use drivers::graphics::*;
 
 use arch::x86_64::interrupts::gdt::init_gdt;
 use arch::x86_64::interrupts::idt::init_idt;
-
-use drivers::graphics::*;
 
 use kernel::lock::TicketLock;
 use kernel::memory::pmm::*;
 use kernel::memory::paging::*;
 use kernel::memory::vmm::*;
+use kernel::memory::heap::KernelAllocator;
 
-use crate::drivers::serial::SerialWriter;
-use crate::drivers::serial::log_u64_to_serial;
-use crate::kernel::memory::bs_kmalloc::init_bootstrap_allocator;
+use tests::memory_tests::*;
+
+#[global_allocator]
+pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
 static ALLOCATOR: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
@@ -113,7 +114,7 @@ pub extern "C" fn kmain() -> ! {
     };
 
 
-    write!(&mut logger, "Initiating PMM... ");
+    write!(&mut logger, "Initiating PMM... ").unwrap();
     
     // Inititate PMM
     {
@@ -121,7 +122,7 @@ pub extern "C" fn kmain() -> ! {
         allocator.init();
     }
 
-    write!(&mut logger, "Physical Memory Allocator initiated.\n");
+    write!(&mut logger, "Physical Memory Allocator initiated.\n").unwrap();
 
     // Inititate Pager
     {
@@ -129,53 +130,15 @@ pub extern "C" fn kmain() -> ! {
         pager.init();
     }
 
-    // Initiate Bootstrap allocator 
-    init_bootstrap_allocator();
-
-    write!(&mut logger, "Switched CR3\n");
-
-    write!(&mut logger, "Requesting 8KB of standard memory...\n");
-    let standard_addr = GLOBAL_VMM.lock().mmap(0x2000, VM_FLAG_WRITE)
-        .expect("\nFailed to mmap standard pages");
+    write!(&mut logger, "Switched CR3\n").unwrap();
     
-    let standard_ptr = standard_addr as *mut u8;
+    write!(&mut logger, "RUNNING MEMORY TESTS\n").unwrap();
     
-    unsafe {
-        write!(&mut logger, "Writing to 0x{:x}\n", standard_addr as u64);
-        *standard_ptr = 0xBE; 
-        
-        write!(&mut logger, "Writing to second page 0x{:x}\n", standard_addr as u64 + 0x1000);
-        *(standard_ptr.add(0x1000)) = 0xEF;
+    test_kmalloc(&mut logger);
+    test_vmalloc(&mut logger);
+    test_collections(&mut logger);
 
-        write!(&mut logger, "Reading back values: [0]: 0x{:x}, [1]: 0x{:x}\n", *standard_ptr as u64, *standard_ptr.add(0x1000) as u64);
-        assert_eq!(*standard_ptr, 0xBE);
-        assert_eq!(*(standard_ptr.add(0x1000)), 0xEF);
-    }
-    write!(&mut logger, "Standard Demand Paging OK\n");
-
-    write!(&mut logger, "Requesting 2MB of Huge Page memory...\n");
-    let huge_addr = GLOBAL_VMM.lock().mmap(0x200_000, VM_FLAG_WRITE | VM_FLAG_HUGE)
-        .expect("\nFailed to mmap huge page");
-        
-    let huge_ptr = huge_addr as *mut u64;
-    
-    unsafe {
-        write!(&mut logger, "Writing to 0x{:x}\n", huge_addr as u64);
-        *huge_ptr = 0xDEADBEEF_CAFEBABE;
-        
-        write!(&mut logger, "Reading back value: 0x{:x}\n", *huge_ptr as u64);
-        assert_eq!(*huge_ptr, 0xDEADBEEF_CAFEBABE);
-    }
-    write!(&mut logger, "Huge Page Demand Paging OK\n");
-
-    write!(&mut logger, "Testing munmap...\n");
-    
-    GLOBAL_VMM.lock().munmap(standard_addr, 0x2000).expect("Failed to unmap standard memory");
-    GLOBAL_VMM.lock().munmap(huge_addr, 0x200_000).expect("Failed to unmap huge memory");
-    
-    write!(&mut logger, "Unmaps successful\n");
-
-    write!(&mut logger, "--- All VMM TESTS PASSED ---");
+    write!(&mut logger, "TESTS COMPLETE!\n").unwrap();
 
     hcf();
 }

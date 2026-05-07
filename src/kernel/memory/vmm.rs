@@ -1,41 +1,47 @@
-use core::mem::{size_of, align_of};
+use alloc::alloc::{Layout, alloc};
 use crate::kernel::lock::TicketLock;
-use crate::kernel::memory::paging::*;
-use crate::kernel::memory::pmm::*;
-use crate::kernel::memory::bs_kmalloc::*;
+use super::paging::*;
+use super::pmm::*;
 
 pub static VM_FLAG_NONE: usize = 0;
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;
 pub static VM_FLAG_USER: usize = 1 << 2;
 pub static VM_FLAG_HUGE: usize = 1 << 3;
+pub static VM_FLAG_GLOBAL: usize = 1 << 4;
 
 static VM_BASE_ADDR: usize = 0x4000_0000;
 static VM_MAX_ALLOWED: usize = 0x0000_7FFF_FFFF_F000;
 
 fn convert_vm_flags(flags: usize) -> usize {
     let mut writable = false;
-    let mut no_execute = true;
     let mut user_access = false;
+    let mut global = false;
+    let mut no_execute = true;
     if flags & VM_FLAG_WRITE != 0 { writable = true };
     if flags & VM_FLAG_USER  != 0 { user_access = true };
+    if flags & VM_FLAG_GLOBAL  != 0 { global = true };
     if (flags & VM_FLAG_EXEC) != 0 { no_execute = false };
-    get_flags(true, writable, user_access, false, false, false, false, false, false, no_execute) as usize
+    get_flags(true, writable, user_access, false, false, false, false, false, global, no_execute) as usize
 }
 
 pub struct VmaNode {
     pub start: usize,
     pub size: usize,
     pub flags: usize,
+    pub prev: Option<*mut VmaNode>,
     pub next: Option<*mut VmaNode>,
 }
 
 pub fn allocate_node() -> *mut VmaNode {
-    let size = size_of::<VmaNode>();
-    let align = align_of::<VmaNode>();
-    let ptr = BOOTSTRAP_ALLOC.lock().alloc(size, align).expect("Bootstrap heap full");
-
-    ptr as *mut VmaNode
+    let layout = Layout::new::<VmaNode>();
+    unsafe {
+        let ptr = alloc(layout);
+        if ptr.is_null() {
+            panic!("kmalloc failed to allocate VmaNode");
+        }
+        ptr as *mut VmaNode
+    }
 }
 
 pub struct VirtMemManager {
@@ -115,13 +121,17 @@ impl VirtMemManager {
 
         if let Some(addr) = gap_start {
             unsafe {
-                let mut new_node_ptr = allocate_node();
-                *new_node_ptr = VmaNode { start: addr, size, flags, next: current_ptr };
+                let new_node_ptr = allocate_node();
+                *new_node_ptr = VmaNode { start: addr, size, flags, prev: prev_ptr, next: current_ptr };
 
                 if let Some(prev) = prev_ptr {
                     (*prev).next = Some(new_node_ptr);
                 } else {
                     self.head = Some(new_node_ptr);
+                }
+
+                if let Some(next) = current_ptr {
+                    (*next).prev = Some(new_node_ptr);
                 }
             }
             return Some(addr);
@@ -132,7 +142,6 @@ impl VirtMemManager {
     pub fn munmap(&mut self, start_addr: usize, mut size: usize) -> Result<(), &'static str> {
         size = align_up(size);
 
-        let mut prev_ptr: Option<*mut VmaNode> = None;
         let mut current_ptr: Option<*mut VmaNode> = self.head;
         let mut target_vma_ptr: Option<*mut VmaNode> = None;
 
@@ -145,17 +154,20 @@ impl VirtMemManager {
                         return Err("Size does not match VMA region");
                     }
 
-                    if let Some(prev) = prev_ptr {
+                    if let Some(prev) = node.prev {
                         (*prev).next = node.next;
                     } else {
                         self.head = node.next;
+                    }
+
+                    if let Some(next) = node.next {
+                        (*next).prev = node.prev;
                     }
 
                     target_vma_ptr = Some(curr);
                     break;
                 }
 
-                prev_ptr = Some(curr);
                 current_ptr = node.next;
             }
         }

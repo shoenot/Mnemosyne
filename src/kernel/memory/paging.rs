@@ -1,7 +1,6 @@
 use core::arch::asm;
-
 use crate::kernel::lock::TicketLock;
-use crate::kernel::memory::pmm::*;
+use super::pmm::*;
 
 type PhysAlloc = TicketLock<Allocator>;
 
@@ -314,6 +313,7 @@ impl Pager {
             let active_table = &mut *((self.active_l4_addr + phys_offset) as *mut PageTable);
             active_table.unmap_page(virt, phys_offset, size);
         }
+        flush_tlb(virt.0);
     }
 
     pub fn translate(&mut self, virt: VirtAddress, phys_offset: u64) -> Option<u64> {
@@ -333,6 +333,7 @@ impl Pager {
             let active_table = &mut *((self.active_l4_addr + phys_offset) as *mut PageTable);
             active_table.change_flags(virt, new_flags, phys_offset, size);
         }
+        flush_tlb(virt.0);
     }
 }
 

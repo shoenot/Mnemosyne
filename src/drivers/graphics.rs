@@ -1,6 +1,5 @@
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
-use crate::drivers::serial::{log_to_serial, log_u32_to_serial};
 
 pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
     let pixels_per_row = fb.pitch / 4;

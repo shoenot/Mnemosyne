@@ -79,8 +79,15 @@ pub fn log_u64_to_serial(mut n: u64) {
 pub struct SerialWriter;
 impl core::fmt::Write for SerialWriter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        log_to_serial(s);
-        log_to_serial("\n");
+        for c in s.chars() {
+            if c == '\n' {
+                log_to_serial("\n");
+            } else {
+                unsafe {
+                    outb(PORT + 0, c as u8);
+                }
+            }
+        }
         Ok(())
     }
 }
