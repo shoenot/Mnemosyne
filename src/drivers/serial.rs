@@ -75,3 +75,12 @@ pub fn log_u64_to_serial(mut n: u64) {
     let numstr = core::str::from_utf8(&buffer[i..]).unwrap();
     log_to_serial(&numstr);
 }
+
+pub struct SerialWriter;
+impl core::fmt::Write for SerialWriter {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        log_to_serial(s);
+        log_to_serial("\n");
+        Ok(())
+    }
+}

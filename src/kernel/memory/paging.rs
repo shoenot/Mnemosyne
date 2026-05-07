@@ -22,7 +22,7 @@ pub struct VirtAddress(pub u64);
 
 pub struct Pager {
     active_l4_addr: u64,
-    allocator: &'static PhysAlloc 
+    allocator: &'static PhysAlloc,
 }
 
 // helper functions
@@ -120,6 +120,10 @@ impl PageTableEntry {
     pub fn is_huge(&self) -> bool {
         self.0 & (1 << 7) != 0
     }
+
+    pub fn set_flags(&mut self, phys_addr: u64, flags: u64) {
+        self.0 = (phys_addr & 0x000F_FFFF_FFFF_F000) | flags;
+    }
 }
 
 
@@ -152,31 +156,81 @@ impl PageTable {
         }
     }
 
-    pub unsafe fn map_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, allocator: &'static PhysAlloc, phys_offset: u64) -> Option<()> {
+    pub unsafe fn map_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, allocator: &'static PhysAlloc, phys_offset: u64, size: BlockSize) -> Option<()> {
         let (l4, l3, l2, l1, _) = virt.get_idxs();
     
         unsafe {
             let l3_table = get_or_create_next(&mut self.entries[l4 as usize], phys_offset, allocator)?;
             let l2_table = get_or_create_next(&mut (*l3_table).entries[l3 as usize], phys_offset, allocator)?;
-            let l1_table = get_or_create_next(&mut (*l2_table).entries[l2 as usize], phys_offset, allocator)?;
-
-            (*l1_table).entries[l1 as usize] = PageTableEntry::new(phys, flags);
+            if size == BlockSize::Huge {
+                let huge_flags = flags | (1 << 7);
+                (*l2_table).entries[l2 as usize] = PageTableEntry::new(phys, huge_flags);
+            } else {
+                let l1_table = get_or_create_next(&mut (*l2_table).entries[l2 as usize], phys_offset, allocator)?;
+                (*l1_table).entries[l1 as usize] = PageTableEntry::new(phys, flags);
+            }
         }
         Some(())
     }
 
-    pub unsafe fn map_huge_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, allocator: &'static PhysAlloc, phys_offset: u64) -> Option<()> {
-        let (l4, l3, l2, _, _) = virt.get_idxs();
-    
+    pub fn unmap_page(&mut self, virt: VirtAddress, phys_offset: u64, size: BlockSize) {
+        let (l4, l3, l2, l1, _) = virt.get_idxs();
         unsafe {
-            let l3_table = get_or_create_next(&mut self.entries[l4 as usize], phys_offset, allocator)?;
-            let l2_table = get_or_create_next(&mut (*l3_table).entries[l3 as usize], phys_offset, allocator)?;
+            let l3_table = match next_table(&self.entries[l4 as usize], phys_offset) {
+                Some(t) => t as *mut PageTable,
+                None => return,
+            };
 
-            let huge_flags = flags | (1 << 7);
+            let l2_table = match next_table(&(*l3_table).entries[l3 as usize], phys_offset) {
+                Some(t) => t as *mut PageTable,
+                None => return,
+            };
 
-            (*l2_table).entries[l2 as usize] = PageTableEntry::new(phys, huge_flags);
+            if size == BlockSize::Huge {
+                (*l2_table).entries[l2 as usize].set_unused();
+            } else {
+                let l1_table = match next_table(&(*l2_table).entries[l2 as usize], phys_offset) {
+                    Some(t) => t as *mut PageTable,
+                    None => return,
+                };
+                (*l1_table).entries[l1 as usize].set_unused();
+            }
         }
-        Some(())
+    }
+
+    pub fn change_flags(&mut self, virt: VirtAddress, new_flags: u64, phys_offset: u64, size: BlockSize) {
+        let (l4, l3, l2, l1, _) = virt.get_idxs();
+        unsafe {
+            let l3_table = match next_table(&self.entries[l4 as usize], phys_offset) {
+                Some(t) => t as *mut PageTable,
+                None => return,
+            };
+
+            let l2_table = match next_table(&(*l3_table).entries[l3 as usize], phys_offset) {
+                Some(t) => t as *mut PageTable,
+                None => return,
+            };
+
+            if size == BlockSize::Huge {
+                let entry  = &mut (*l2_table).entries[l2 as usize];
+                let huge_flags = new_flags | (1 << 7);
+                if entry.is_present() {
+                    let phys_addr = entry.get_addr();
+                    entry.set_flags(phys_addr, huge_flags);
+                }
+            } else {
+                let l1_table = match next_table(&(*l2_table).entries[l2 as usize], phys_offset) {
+                    Some(t) => t as *mut PageTable,
+                    None => return,
+                };
+            
+                let entry  = &mut (*l1_table).entries[l1 as usize];
+                if entry.is_present() {
+                    let phys_addr = entry.get_addr();
+                    entry.set_flags(phys_addr, new_flags);
+                }
+            }
+        }
     }
 }
 
@@ -187,7 +241,7 @@ impl VirtAddress {
         addr |= (l3 & 0o777) << 30;
         addr |= (l2 & 0o777) << 21;
         addr |= (l1 & 0o777) << 12;
-        addr |= offset & 0o7777;
+        addr |= offset & 0xFFF;
         if (addr & (1 << 47)) != 0 {
             addr |= 0xffff_0000_0000_0000;
         }
@@ -199,18 +253,26 @@ impl VirtAddress {
         let l3 = (self.0 >> 30) & 0o777;
         let l2 = (self.0 >> 21) & 0o777;
         let l1 = (self.0 >> 12) & 0o777;
-        let offset = self.0 & 0o7777;
+        let offset = self.0 & 0xFFF;
         (l4, l3, l2, l1, offset)
     }
 
     pub fn get_huge_offset(&self) -> u64 {
         self.0 & 0x1F_FFFF
     }
+
+    pub fn get_offset(&self) -> u64 {
+        self.0 & 0xFFF
+    }
 }
 
 impl Pager {
-    pub fn init(allocator: &'static PhysAlloc) -> Option<Self> {
-        let pml4_table_frame = { allocator.lock().alloc(BlockSize::Normal)? as u64 };
+    pub const fn new(allocator: &'static PhysAlloc) -> Self {
+        Self { active_l4_addr: 0, allocator }
+    }
+
+    pub fn init(&mut self) -> Option<()> {
+        let pml4_table_frame = { self.allocator.lock().alloc(BlockSize::Normal)? as u64 };
 
         let new_pml4_table = unsafe { &mut *((pml4_table_frame + *HHDMOFFSET as u64) as *mut PageTable) };
         new_pml4_table.zero();
@@ -223,25 +285,54 @@ impl Pager {
         }
 
         load_cr3(pml4_table_frame);
-
-        Some(Pager { active_l4_addr: pml4_table_frame, allocator })
+        
+        self.active_l4_addr = pml4_table_frame;
+        Some(())
     }
 
-    pub fn map_page(&mut self, virt:VirtAddress, phys: u64, flags: u64, phys_offset: u64) -> Option<()> {
+    pub fn map_page(&mut self, virt:VirtAddress, phys: u64, flags: u64, phys_offset: u64, size: BlockSize) -> Option<()> {
+        if size == BlockSize::Normal {
+            assert!(phys & 0xFFF == 0, "Phys address not 4k aligned");
+            assert!(virt.get_offset() == 0, "Virt address not 4k aligned");
+        } else {
+            assert!(phys & 0x1F_FFFF == 0, "Phys address not 2M aligned");
+            assert!(virt.get_huge_offset() == 0, "Virt address not 2M aligned");
+        }
         unsafe {
             let active_table = &mut *((self.active_l4_addr + phys_offset) as *mut PageTable);
-            active_table.map_page(virt, phys, flags, self.allocator, phys_offset)
+            active_table.map_page(virt, phys, flags, self.allocator, phys_offset, size)
         }
     }
 
-    pub fn map_huge_page(&mut self, virt:VirtAddress, phys: u64, flags: u64, phys_offset: u64) -> Option<()> {
-        assert!(phys & 0x1F_FFFF == 0, "Phys address not 2M aligned");
-        assert!(virt.get_huge_offset() == 0, "Virt address not 2M aligned");
+    pub fn unmap_page(&mut self, virt: VirtAddress, phys_offset: u64, size: BlockSize) {
+        if size == BlockSize::Normal {
+            assert!(virt.get_offset() == 0, "Virt address not 4k aligned");
+        } else {
+            assert!(virt.get_huge_offset() == 0, "Virt address not 2M aligned");
+        }
         unsafe {
             let active_table = &mut *((self.active_l4_addr + phys_offset) as *mut PageTable);
-            active_table.map_huge_page(virt, phys, flags, self.allocator, phys_offset)
+            active_table.unmap_page(virt, phys_offset, size);
         }
     }
 
+    pub fn translate(&mut self, virt: VirtAddress, phys_offset: u64) -> Option<u64> {
+        unsafe {
+            let active_table = &mut *((self.active_l4_addr + phys_offset) as *mut PageTable);
+            active_table.translate(virt, phys_offset)
+        }
+    }
+
+    pub fn change_flags(&mut self, virt: VirtAddress, new_flags: u64, phys_offset: u64, size: BlockSize) {
+        if size == BlockSize::Normal {
+            assert!(virt.get_offset() == 0, "Virt address not 4k aligned");
+        } else {
+            assert!(virt.get_huge_offset() == 0, "Virt address not 2M aligned");
+        }
+        unsafe {
+            let active_table = &mut *((self.active_l4_addr + phys_offset) as *mut PageTable);
+            active_table.change_flags(virt, new_flags, phys_offset, size);
+        }
+    }
 }
 

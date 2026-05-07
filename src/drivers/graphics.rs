@@ -1,6 +1,5 @@
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
-
 use crate::drivers::serial::{log_to_serial, log_u32_to_serial};
 
 pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
@@ -49,4 +48,26 @@ pub fn writenumber(mut n: u64, y: u32, offset: u32, font: &Psf, fb: &Framebuffer
     
     let numstr = core::str::from_utf8(&buffer[i..]).unwrap();
     writeline(numstr, y, offset, font, fb);
+}
+
+pub struct GraphicsWriter<'a>{
+    pub current_line: u32,
+    pub current_offset: u32,
+    pub font: &'a Psf<'a>,
+    pub fb: &'a Framebuffer,
+}
+
+impl<'a> core::fmt::Write for GraphicsWriter<'a> {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for c in s.chars() {
+            if c == '\n' {
+                self.current_line += 1;
+                self.current_offset = 0;
+            } else {
+                putchar(c, self.current_offset, self.current_line, self.font, self.fb);
+                self.current_offset += 1;
+            }
+        }
+        Ok(())
+    }
 }

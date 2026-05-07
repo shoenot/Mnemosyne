@@ -4,12 +4,14 @@ use crate::kernel::memory::paging::*;
 use crate::kernel::memory::pmm::*;
 use crate::kernel::memory::bs_kmalloc::*;
 
-static VM_FLAG_NONE: usize = 0;
-static VM_FLAG_WRITE: usize = 1 << 0;
-static VM_FLAG_EXEC: usize = 1 << 1;
-static VM_FLAG_USER: usize = 1 << 2;
+pub static VM_FLAG_NONE: usize = 0;
+pub static VM_FLAG_WRITE: usize = 1 << 0;
+pub static VM_FLAG_EXEC: usize = 1 << 1;
+pub static VM_FLAG_USER: usize = 1 << 2;
+pub static VM_FLAG_HUGE: usize = 1 << 3;
 
 static VM_BASE_ADDR: usize = 0x4000_0000;
+static VM_MAX_ALLOWED: usize = 0x0000_7FFF_FFFF_F000;
 
 fn convert_vm_flags(flags: usize) -> usize {
     let mut writable = false;
@@ -38,49 +40,248 @@ pub fn allocate_node() -> *mut VmaNode {
 
 pub struct VirtMemManager {
     head: Option<*mut VmaNode>,
-    pager: &'static mut TicketLock<Pager>,
+    pager: &'static TicketLock<Pager>,
     allocator: &'static TicketLock<Allocator>,
 }
+
+unsafe impl Send for VirtMemManager {}
+unsafe impl Sync for VirtMemManager {}
 
 fn align_up(addr: usize) -> usize {
     (addr + 0xFFF) & !0xFFF
 }
 
 impl VirtMemManager {
-    pub const fn new(pager: &'static mut TicketLock<Pager>, allocator: &'static TicketLock<Allocator>) -> Self {
-        Self { head: 0, pager, allocator }
+    pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static TicketLock<Allocator>) -> Self {
+        Self { head: None, pager, allocator }
     }
 
-    pub fn mmap(&mut self, mut size: usize, flags: usize) -> Option<u64> {
-        size = ((size + NORMAL_PAGE_SIZE - 1) / NORMAL_PAGE_SIZE) * NORMAL_PAGE_SIZE;
+    pub fn mmap(&mut self, mut size: usize, flags: usize) -> Option<usize> {
+        let mask = if flags & VM_FLAG_HUGE != 0 {
+            HUGE_PAGE_SIZE - 1
+        } else {
+            NORMAL_PAGE_SIZE - 1 
+        };
+
+        size = (size + mask) & !mask;
         
-        let mut gap_start = 0;
-        let mut next_addr = 0;
-        let mut current_addr = 0;
-        let mut base_addr = VM_BASE_ADDR;
+        let mut base = VM_BASE_ADDR;
+        let mut gap_start: Option<usize> = None;
+        let mut prev_ptr = None;
+        let mut current_ptr = self.head;
+
         unsafe {
-            if self.head.is_none() {
-                gap_start = VM_BASE_ADDR;
+            if let Some(head_ptr) = current_ptr {
+                let curr_node = &*head_ptr;
+                if curr_node.start > base && (curr_node.start - base) >= size {
+                    gap_start = Some(base);
+                }
             } else {
-                let mut next_node = &
-                cu = current_node.start;
-                if current_node.start - VM_BASE_ADDR > size {
-                    gap_start = VM_BASE_ADDR;
-                } else {
-                    while current_node.next.is_some() {
-                        
+                gap_start = Some(base);
+            }
+                
+            if gap_start.is_none() {
+                while let Some(curr_ptr) = current_ptr {
+                    let curr_node = &*curr_ptr;
+                    base = (curr_node.start + curr_node.size + mask) & !mask;
+
+                    let next_ptr = curr_node.next; 
+
+                    if let Some(n_ptr) = next_ptr {
+                        let next_node = &*n_ptr;
+                        if next_node.start > base && (next_node.start - base) >= size {
+                            gap_start = Some(base);
+                            prev_ptr = Some(curr_ptr);
+                            current_ptr = next_ptr;
+                            break;
+                        }
+                    }
+                    
+                    prev_ptr = Some(curr_ptr);
+                    current_ptr = next_ptr;
+                }
+            }
+
+            if gap_start.is_none() {
+                if let Some(last_ptr) = prev_ptr {
+                    let last_node = &*last_ptr;
+                    base = (last_node.start + last_node.size + mask) & !mask;
+                    if VM_MAX_ALLOWED - base >= size {
+                        gap_start = Some(base);
                     }
                 }
             }
         }
+
+        if let Some(addr) = gap_start {
+            unsafe {
+                let mut new_node_ptr = allocate_node();
+                *new_node_ptr = VmaNode { start: addr, size, flags, next: current_ptr };
+
+                if let Some(prev) = prev_ptr {
+                    (*prev).next = Some(new_node_ptr);
+                } else {
+                    self.head = Some(new_node_ptr);
+                }
+            }
+            return Some(addr);
+        }
         None
     }
 
-    pub fn munmap(&mut self, start: usize, size: usize) -> Result<(), &'statc str> {
-        
+    pub fn munmap(&mut self, start_addr: usize, mut size: usize) -> Result<(), &'static str> {
+        size = align_up(size);
+
+        let mut prev_ptr: Option<*mut VmaNode> = None;
+        let mut current_ptr: Option<*mut VmaNode> = self.head;
+        let mut target_vma_ptr: Option<*mut VmaNode> = None;
+
+        unsafe {
+            while let Some(curr) = current_ptr {
+                let node = &*curr;
+
+                if node.start == start_addr {
+                    if node.size != size {
+                        return Err("Size does not match VMA region");
+                    }
+
+                    if let Some(prev) = prev_ptr {
+                        (*prev).next = node.next;
+                    } else {
+                        self.head = node.next;
+                    }
+
+                    target_vma_ptr = Some(curr);
+                    break;
+                }
+
+                prev_ptr = Some(curr);
+                current_ptr = node.next;
+            }
+        }
+
+        let target_vma = match target_vma_ptr {
+            Some(ptr) => unsafe { &*ptr },
+            None => return Err("Invalid address or VMA not found"),
+        };
+
+        let is_huge = target_vma.flags & VM_FLAG_HUGE != 0;
+        let step_size = if is_huge { HUGE_PAGE_SIZE } else { NORMAL_PAGE_SIZE };
+        let block_size = if is_huge { BlockSize::Huge } else { BlockSize::Normal };
+
+        let mut current_page = target_vma.start;
+        let mut pagerlock = self.pager.lock();
+        let mut alloclock = self.allocator.lock();
+
+        while current_page < (target_vma.start + target_vma.size) {
+            let virt = VirtAddress(current_page as u64);
+            
+            if let Some(phys_addr) = pagerlock.translate(virt, *HHDMOFFSET as u64) {
+                alloclock.free(phys_addr as usize, block_size);
+                pagerlock.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+            }
+            flush_tlb(current_page as u64);
+            current_page += step_size;
+        }
+
+        Ok(())
     }
 
-    pub fn mprotect(&mut self, start: usize, size: usize, new_flags: usize) -> Result<(), &'statc str> {
+    pub fn mprotect(&mut self, start_addr: usize, mut size: usize, new_flags: usize) -> Result<(), &'static str> {
+        size = align_up(size);
 
+        let mut current_ptr: Option<*mut VmaNode> = self.head;
+        let mut target_vma_ptr: Option<*mut VmaNode> = None;
+
+        unsafe {
+            while let Some(curr) = current_ptr {
+                let node = &mut *curr; 
+
+                if node.start == start_addr {
+                    if node.size != size {
+                        return Err("Size does not match VMA region exactly");
+                    }
+                    node.flags = new_flags; 
+                    target_vma_ptr = Some(curr);
+                    break;
+                }
+                current_ptr = node.next;
+            }
+        }
+
+        let target_vma = match target_vma_ptr {
+            Some(ptr) => unsafe { &*ptr },
+            None => return Err("Invalid address or VMA not found"),
+        };
+
+        let is_huge = target_vma.flags & VM_FLAG_HUGE != 0;
+        let step_size = if is_huge { HUGE_PAGE_SIZE } else { NORMAL_PAGE_SIZE };
+        let block_size = if is_huge { BlockSize::Huge } else { BlockSize::Normal };
+
+        let mut current_page = target_vma.start;
+        
+        while current_page < (target_vma.start + target_vma.size) {
+            let virt = VirtAddress(current_page as u64);
+            let hwflags = convert_vm_flags(new_flags) as u64;
+            {
+                self.pager.lock().change_flags(virt, hwflags, *HHDMOFFSET as u64, block_size);
+            }
+            flush_tlb(current_page as u64);
+            current_page += step_size;
+        }
+        Ok(()) 
+    }
+
+    pub fn handle_page_fault(&mut self, addr: usize, error_code: usize) -> bool {
+        let mut target_vma_ptr = None;
+        let mut current_ptr = self.head;
+
+        unsafe {
+            while let Some(curr) = current_ptr {
+                let node = &*curr;
+                if addr >= node.start && addr < (node.start + node.size) {
+                    target_vma_ptr = Some(curr);
+                    break;
+                }
+                current_ptr = node.next;
+            }
+        }
+        
+        let target_vma = match target_vma_ptr {
+            Some(ptr) => unsafe { &*ptr },
+            None => return false,
+        };
+
+        let is_write = (error_code & (1 << 1)) != 0;
+        let vma_allows_write = (target_vma.flags & VM_FLAG_WRITE) != 0;
+
+        if is_write && !vma_allows_write {
+            return false; // tried writing to a read only vma which is very illegal and a real fault
+        }
+
+        let is_huge = target_vma.flags & VM_FLAG_HUGE != 0;
+        let block_size = if is_huge { BlockSize::Huge } else { BlockSize::Normal };
+        let mask = if is_huge { HUGE_PAGE_SIZE - 1 } else { NORMAL_PAGE_SIZE - 1 };
+
+        let fault_page = addr & !mask;
+        let virt = VirtAddress(fault_page as u64);
+
+        
+        let mut alloclock = self.allocator.lock();
+        let phys_frame = match alloclock.alloc(block_size) {
+            Some(addr) => addr as u64,
+            None => panic!("Out of physical memory!"),
+        };
+        drop(alloclock);
+
+        let hw_flags = convert_vm_flags(target_vma.flags) as u64;
+        let mut pagerlock = self.pager.lock();
+        pagerlock.map_page(virt, phys_frame, hw_flags, *HHDMOFFSET as u64, block_size)
+            .expect("FATAL: Pager failed to map memory during Page Fault!");
+        drop(pagerlock);
+        
+        flush_tlb(addr as u64);
+
+        true
     }
 }

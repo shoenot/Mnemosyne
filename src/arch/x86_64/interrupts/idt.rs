@@ -2,6 +2,7 @@ use core::arch::asm;
 use lazy_static::lazy_static;
 use crate::drivers::serial::{log_to_serial, log_u64_to_serial};
 use crate::hcf;
+use crate::GLOBAL_VMM;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -81,6 +82,7 @@ pub fn init_idt() {
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct InterruptStackFrame {
     pub rax: u64,
     pub rbx: u64,
@@ -116,17 +118,11 @@ pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
             gpf_handler(&frame);
         },
         14 => {
-            let pfaddr = page_fault_address();
-            let error_code = frame.error_code;
-            log_to_serial("page fault at: ");
-            log_u64_to_serial(pfaddr);
-            log_to_serial(" with error code: ");
-            log_u64_to_serial(error_code);
+            page_fault_handler(&frame);
         },
         15 => log_to_serial("unexpected interrupt.\n"),
         _ => {},
     }
-    hcf();
 }
 
 fn gpf_handler(frame: &InterruptStackFrame) {
@@ -137,11 +133,25 @@ fn gpf_handler(frame: &InterruptStackFrame) {
     hcf();
 }
 
-fn page_fault_address() -> u64 {
+fn read_cr2() -> u64 {
     let cr2: u64;
     unsafe {
         asm!("movq %cr2, {0}", out(reg) cr2, options(att_syntax, nostack, preserves_flags));
     };
-    log_to_serial("page fault at: ");
     cr2
+}
+
+fn page_fault_handler(frame: &InterruptStackFrame) {
+    let addr = read_cr2() as usize;
+    let error_code = frame.error_code as usize;
+    let mut vmm = GLOBAL_VMM.lock();
+
+    let fixed = vmm.handle_page_fault(addr, error_code);
+
+    if !fixed {
+        panic!(
+            "PAGE FAULT EXCEPTION\nAT ADDRESS: {:#X}\nError Code: {:#b}\n{:#?}",
+            addr, error_code, frame
+        )
+    }
 }
