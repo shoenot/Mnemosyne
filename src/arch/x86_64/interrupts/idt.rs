@@ -1,7 +1,7 @@
 use core::arch::asm;
 use lazy_static::lazy_static;
 use crate::drivers::serial::{log_to_serial, log_u64_to_serial};
-use crate::arch::x86_64::apic::{Local_APIC, get_apic_base};
+use crate::{Local_APIC, get_apic_base};
 use crate::hcf;
 use crate::GLOBAL_VMM;
 use crate::kernel::memory::pmm::HHDMOFFSET;
@@ -129,43 +129,5 @@ pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
             timer_handler(&frame);
         }
         _ => {},
-    }
-}
-
-fn gpf_handler(frame: &InterruptStackFrame) {
-    log_to_serial("Error Code: ");
-    log_u64_to_serial(frame.error_code);
-    log_to_serial(" Instruction Pointer: ");
-    log_u64_to_serial(frame.instruction_pointer);
-    hcf();
-}
-
-fn read_cr2() -> u64 {
-    let cr2: u64;
-    unsafe {
-        asm!("movq %cr2, {0}", out(reg) cr2, options(att_syntax, nostack, preserves_flags));
-    };
-    cr2
-}
-
-fn page_fault_handler(frame: &InterruptStackFrame) {
-    let addr = read_cr2() as usize;
-    let error_code = frame.error_code as usize;
-    let mut vmm = GLOBAL_VMM.lock();
-
-    let fixed = vmm.handle_page_fault(addr, error_code);
-
-    if !fixed {
-        panic!(
-            "PAGE FAULT EXCEPTION\nAT ADDRESS: {:#X}\nError Code: {:#b}\n{:#?}",
-            addr, error_code, frame
-        )
-    }
-}
-
-fn timer_handler(frame: &InterruptStackFrame) {
-    unsafe {
-        let lapic = Local_APIC { base_addr: get_apic_base() + *HHDMOFFSET };
-        lapic.eoi();
     }
 }

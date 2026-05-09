@@ -5,23 +5,20 @@ mod drivers;
 mod kernel;
 mod boot;
 mod tests;
+mod panic;
 
 extern crate alloc;
 
-use core::{
-    panic::PanicInfo, 
-    arch::asm, 
-    fmt::Write
-};
-use simple_psf::*;
+use drivers::logger::Logger;
 pub use boot::*;
 
-use drivers::serial::*;
-use drivers::graphics::*;
+use panic::hcf;
 
 use arch::x86_64::interrupts::gdt::init_gdt;
 use arch::x86_64::interrupts::idt::init_idt;
 use arch::x86_64::apic::lapic::{Local_APIC, get_apic_base};
+use arch::x86_64::apic::ioapic::IoApic;
+use arch::x86_64::timer;
 
 use kernel::lock::TicketLock;
 
@@ -41,38 +38,6 @@ static ALLOCATOR: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
 static GLOBAL_VMM: TicketLock<VirtMemManager> = TicketLock::new(VirtMemManager::new(&PAGER, &ALLOCATOR));
 
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    log_to_serial("!!! KERNEL PANIC : ");
-    let mut writer = SerialWriter;
-    let _ = write!(&mut writer, "{}\n", info);
-    hcf();
-}
-
-fn hcf() -> ! {
-    loop {
-        unsafe {
-            #[cfg(target_arch = "x86_64")]
-            asm!("hlt");
-        }
-    }
-}
-
-struct Logger<'a> {
-    graphics_writer: &'a mut GraphicsWriter<'a>,
-    serial_writer: &'a mut SerialWriter,
-}
-
-impl<'a> core::fmt::Write for Logger<'a> {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        self.graphics_writer.write_str(s)?;
-        self.serial_writer.write_str(s)?;
-        Ok(())
-    }
-}
-
-const FONT_DATA: &[u8] = include_bytes!("../build_deps/zap-ext-light16.psf");
-
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
     if !BASE_REVISION.is_supported() {
@@ -80,45 +45,15 @@ pub extern "C" fn kmain() -> ! {
     }
 
     unsafe {
-        init_serial();
-        log_to_serial("\x1B[2J\x1B[H");
-        log_to_serial("INITIATING GDT... ");
+        klog!("INITIATING GDT...");
         init_gdt();
-        log_to_serial("INITIATING IDT... ");
+        klogln!("GDT INIT OK.");
+        klog!("INITIATING IDT...");
         init_idt();
+        klogln!("IDT INIT OK.");
     }
-
-    let font = match Psf::parse(FONT_DATA) {
-        Ok(f) => f,
-        Err(ParseError::HeaderMissing) => { panic!("FONT LOAD FAILED: HEADER MISSING") },
-        Err(ParseError::InvalidMagicBytes) => { panic!("FONT LOAD FAILED: INVALID MAGIC BYTES") },
-        Err(ParseError::UnknownVersion(_)) => { panic!("FONT LOAD FAILED: UNKNOWN VERSION") },
-        Err(ParseError::GlyphTableTruncated {..}) => { panic!("FONT LOAD FAILED: GLYPH TABLE TRUNCATED") },
-    };
-    log_to_serial("FONT LOADED\n");
-
-    let fb = if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
-        if let Some(fb) = fb_response.framebuffers().first() {
-            fb
-        } else { panic!("Cannot get framebuffer") }
-    } else { panic!("Cannot get framebuffer") };
-
-    let mut graphics_writer = GraphicsWriter {
-        current_line: 0,
-        current_offset: 0,
-        font: &font,
-        fb: &fb
-    };
-
-    let mut serial_writer = SerialWriter;
-
-    let mut logger = Logger {
-        graphics_writer: &mut graphics_writer,
-        serial_writer: &mut serial_writer,
-    };
-
-
-    write!(&mut logger, "Initiating PMM... ").unwrap();
+    
+    klogln!("INITIATING MEMORY MANAGERS... ");
     
     // Inititate PMM
     {
@@ -126,23 +61,21 @@ pub extern "C" fn kmain() -> ! {
         allocator.init();
     }
 
-    write!(&mut logger, "Physical Memory Allocator initiated.\n").unwrap();
-
     // Inititate Pager
     {
         let mut pager = PAGER.lock();
         pager.init();
     }
 
-    write!(&mut logger, "Switched CR3\n").unwrap();
+    klogln!("SWITCHED CR3. PAGING HANDOVER COMPLETE.");
     
-    write!(&mut logger, "RUNNING MEMORY TESTS\n").unwrap();
+    klogln!("RUNNING MEMORY TESTS");
     
-    test_kmalloc(&mut logger);
-    test_vmalloc(&mut logger);
-    test_collections(&mut logger);
+    test_kmalloc();
+    test_vmalloc();
+    test_collections();
 
-    write!(&mut logger, "TESTS COMPLETE!\n").unwrap();
+    klogln!("TESTS COMPLETE!");
     
     unsafe {
         let apic_phys = get_apic_base() as u64;
@@ -154,7 +87,33 @@ pub extern "C" fn kmain() -> ! {
     }
 
     let lapic = Local_APIC::init();
-    lapic.timer_setup(32, 0x0FFF_FFFF);
+    let lapic_id = lapic.id();
+    // lapic.timer_setup(32, 0x0FFF_FFFF);
+
+    let ioapic = IoApic::new();
+    {
+        let ioapic_virt = ioapic.base_addr as u64;
+        let ioapic_phys = ioapic_virt - *HHDMOFFSET as u64;
+        let mut pager = PAGER.lock();
+        let flags = get_flags(true, true, false, true, true, false, false, false, true, true);
+        pager.map_page(VirtAddress(ioapic_virt), ioapic_phys, flags, *HHDMOFFSET as u64, BlockSize::Normal).unwrap();
+        drop(pager);
+    }
+
+    let rsdp = acpi::rsdp::Rsdp::get();
+    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
+    let madt_info = acpi::madt::parse_madt(&sdt);
+
+    let mut pit_gsi = 0;
+    for ovr in madt_info.overrides.iter() {
+        if ovr.source == 0 {
+            pit_gsi = ovr.gsi;
+            break;
+        }
+    }
+
+    ioapic.set_entry(pit_gsi, 32, lapic_id);
+    timer::pit::init(1000);
 
     hcf();
 }

@@ -37,6 +37,8 @@ fn disable_interrupts() {
 pub trait RawLock {
     fn lock(&self);
     fn unlock(&self);
+    // ONLY USE DURING KERNEL PANICS. NEVER EVER EVER OTHERWISE PLZ.
+    unsafe fn force_unlock(&self);
 }
 
 // Raw SpinLock
@@ -67,6 +69,10 @@ impl RawLock for RawSpinLock {
     fn unlock(&self) {
         self.locked.store(false, Release)
     }
+
+    unsafe fn force_unlock(&self) {
+        self.locked.store(false, Release);
+    }
 }
 
 // Raw TicketLock
@@ -95,6 +101,10 @@ impl RawLock for RawTicketLock {
         let successor = self.serving.load(Relaxed) + 1;
         self.serving.store(successor, Release);
     }
+
+    unsafe fn force_unlock(&self) {
+        self.serving.store(self.ticket.load(Relaxed), Release);
+    }
 }
 
 // Generic Lock
@@ -112,6 +122,13 @@ impl<R: RawLock, T> Lock<R, T> {
         }
         self.raw.lock();
         LockGuard { lock: self, interrupts_state }
+    }
+
+    // ONLY USE DURING KERNEL PANICS PLZ
+    pub unsafe fn force_unlock(&self) {
+        unsafe {
+            self.raw.force_unlock();
+        }
     }
 }
 

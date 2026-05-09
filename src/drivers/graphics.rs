@@ -49,21 +49,25 @@ pub fn writenumber(mut n: u64, y: u32, offset: u32, font: &Psf, fb: &Framebuffer
     writeline(numstr, y, offset, font, fb);
 }
 
-pub struct GraphicsWriter<'a>{
+pub struct SyncFramebuffer(pub &'static Framebuffer);
+unsafe impl Send for SyncFramebuffer {}
+unsafe impl Sync for SyncFramebuffer {}
+
+pub struct GraphicsWriter {
     pub current_line: u32,
     pub current_offset: u32,
-    pub font: &'a Psf<'a>,
-    pub fb: &'a Framebuffer,
+    pub font: &'static Psf<'static>,
+    pub fb: SyncFramebuffer,
 }
 
-impl<'a> core::fmt::Write for GraphicsWriter<'a> {
+impl core::fmt::Write for GraphicsWriter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for c in s.chars() {
             if c == '\n' {
                 self.current_line += 1;
                 self.current_offset = 0;
             } else {
-                putchar(c, self.current_offset, self.current_line, self.font, self.fb);
+                putchar(c, self.current_offset, self.current_line, self.font, self.fb.0);
                 self.current_offset += 1;
             }
         }
