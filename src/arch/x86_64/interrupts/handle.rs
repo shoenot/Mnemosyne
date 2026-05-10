@@ -11,7 +11,9 @@ use crate::{
 pub fn read_cr2() -> u64 {
     let cr2: u64;
     unsafe {
-        asm!("movq %cr2, {0}", out(reg) cr2, options(att_syntax, nostack, preserves_flags));
+        asm!("mov {0}, cr2", 
+            out(reg) cr2, 
+            options(nostack, preserves_flags));
     };
     cr2
 }

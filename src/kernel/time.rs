@@ -24,7 +24,6 @@ const IA32_TSC_DEADLINE: u32 = 0x6E0;
 #[derive(Debug)]
 pub enum TimeSource {
     None,
-    PIT(timer::pit::PIT),
     HPET(timer::hpet::HPET),
     TSC(timer::tsc::TSC),
 }
@@ -33,7 +32,6 @@ impl ClockSource for TimeSource {
     fn name(&self) -> &'static str {
         match self {
             Self::None => "None",
-            Self::PIT(x) => x.name(),
             Self::HPET(x) => x.name(),
             Self::TSC(x) => x.name(),
         }
@@ -42,7 +40,6 @@ impl ClockSource for TimeSource {
     fn read_counter(&self) -> usize {
         match self {
             Self::None => 0,
-            Self::PIT(x) => x.read_counter(),
             Self::HPET(x) => x.read_counter(),
             Self::TSC(x) => x.read_counter(),
         }
@@ -135,11 +132,7 @@ pub fn init() {
             let target = hpet.frequency / 100;
             let start = hpet.read_counter();
             while hpet.read_counter() < start + target { core::hint::spin_loop(); }
-        } else {
-            let mut pit = timer::pit::PIT { frequency: 0 };
-            pit.init_mode_0();
-            while pit.read_counter() > 0 && pit.read_counter() <= 11932 { core::hint::spin_loop(); }
-        }
+        } 
 
         // stop the timers
         let end_lapic = lapic.current_count();
@@ -151,7 +144,8 @@ pub fn init() {
         };
 
         if lapic_fq == 0 {
-            lapic_fq = (start_lapic.saturating_sub(end_lapic)) * 100;
+            let ticks_in_10ms = (start_lapic.saturating_sub(end_lapic)) * 100;
+            lapic_fq = ticks_in_10ms * 100 * 16;
         }
         if use_tsc && tsc_fq == 0 {
             tsc_fq = (end_tsc.saturating_sub(start_tsc)) * 100;

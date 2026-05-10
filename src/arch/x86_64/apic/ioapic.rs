@@ -43,24 +43,41 @@ impl IOApic {
     }
     
     // route hw interrupt to a local apic mapped to a specific interrupt vector
-    pub fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32) {
+    pub fn mask_all(&self) {
+        // Read the Version Register at offset 0x01
+        let version_reg = unsafe { self.read_reg(0x01) };
+        
+        // Extract the "Max Redirection Entry" field (bits 16-23)
+        let max_entry = ((version_reg >> 16) & 0xFF) as u8;
+
+        // Loop from 0 up to and including max_entry
+        for i in 0..=max_entry {
+            let low_idx = IOREDTBL_BASE + (i * 2);
+            let high_idx = IOREDTBL_BASE + (i * 2) + 1;
+
+            unsafe {
+                // Write with the Mask Bit (16) set to 1
+                self.write_reg(low_idx, 1 << 16);
+                self.write_reg(high_idx, 0);
+            }
+        }
+    }
+
+    pub fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool) {
         if gsi < self.gsi_base as u32 { return; }
 
         let rel_gsi = (gsi - self.gsi_base as u32) as u8;
         let low_idx = IOREDTBL_BASE + (rel_gsi * 2);
         let high_idx = IOREDTBL_BASE + (rel_gsi * 2) + 1;
 
-        // Low 32 bits: 
-        // - Bits 0-7: Interrupt Vector
-        // - Bits 8-10: Delivery Mode (000 = Fixed)
-        // - Bit 11: Destination Mode (0 = Physical)
-        // - Bit 13: Pin Polarity (0 = High active)
-        // - Bit 15: Trigger Mode (0 = Edge)
-        // - Bit 16: Mask (0 = Unmasked/Enabled)
-        let low_val = vector as u32;
+        // Bits 0-7: Vector
+        // Bit 16: Mask (1 = Disabled, 0 = Enabled)
+        let mut low_val = vector as u32;
+        if masked {
+            low_val |= 1 << 16;
+        }
 
-        // High 32 bits:
-        // - Bits 24-31 (Bits 56-63 of the 64-bit entry): Destination LAPIC ID
+        // Bits 56-63 (Shifted): Destination LAPIC ID
         let high_val = lapic_id << 24;
 
         unsafe {

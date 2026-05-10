@@ -14,24 +14,22 @@ use core::{
 fn interrupts_enabled() -> bool {
     let rflags: usize;
     unsafe {
-        asm!(
-            "pushfq",
-            "popq {}",
+        asm!("pushf",
+            "pop {}",
             out(reg) rflags,
-            options(att_syntax, nomem, preserves_flags)
-        )
+            options(nomem, preserves_flags))
     }
     (rflags & (1 << 9)) != 0
 }
 
 #[inline]
 fn enable_interrupts() {
-    unsafe { asm!("sti", options(att_syntax, nomem, nostack)) };
+    unsafe { asm!("sti", options(nomem, nostack)) };
 }
 
 #[inline]
 fn disable_interrupts() {
-    unsafe { asm!("cli", options(att_syntax, nomem, nostack)) };
+    unsafe { asm!("cli", options(nomem, nostack)) };
 }
 
 pub trait RawLock {

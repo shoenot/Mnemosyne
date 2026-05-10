@@ -23,9 +23,10 @@ unsafe impl Send for LocalAPIC {}
 unsafe impl Sync for LocalAPIC {}
 
 lazy_static!(
-    static ref LAPIC_BASE_ADDR: usize = unsafe { get_apic_base() };
+    static ref LAPIC_BASE_ADDR: usize = get_apic_base();
 );
 
+#[derive(Clone, Copy)]
 pub enum TimerMode {
     OneShot = 0x00000,
     Periodic = 0x20000,
@@ -35,13 +36,10 @@ pub enum TimerMode {
 pub fn get_apic_base() -> usize {
     let (lower, upper): (u32, u32);
     unsafe {
-        asm!(
-            "rdmsr", 
+        asm!("rdmsr", 
             in("ecx") IA32_APIC_BASE,
             out("eax") lower,
-            out("edx") upper,
-            options(att_syntax)
-        )
+            out("edx") upper)
     }
     let base_phys = ((upper as u64) << 32) | (lower as u64);
     (base_phys & !0xFFF) as usize
@@ -89,9 +87,11 @@ impl LocalAPIC {
     pub fn timer_setup(&self, vector: u8, init_count: u32, mode: TimerMode) {
         unsafe {
             self.write_reg(DIVIDE_CONFIG_OFFSET, 0x03);
-            self.write_reg(TIMER_LVT_OFFSET, TimerMode::Periodic as u32 | vector as u32);
+            self.write_reg(TIMER_LVT_OFFSET, mode as u32 | vector as u32);
 
-            if !matches!(mode, TimerMode::TscDeadline) {
+            if matches!(mode, TimerMode::TscDeadline) {
+                self.write_reg(INIT_COUNT_OFFSET, 0);
+            } else {
                 self.write_reg(INIT_COUNT_OFFSET, init_count);
             }
         }

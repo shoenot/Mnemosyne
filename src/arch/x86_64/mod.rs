@@ -8,9 +8,9 @@ use crate::{
     TicketLock, 
     PAGER,
     klog, 
-    klogln,
-    kernel::acpi,
+    klogln
 };
+
 use apic::lapic::*;
 use apic::ioapic::*;
 
@@ -29,33 +29,21 @@ pub fn init_interrupts() {
 pub fn init_apic() {
     let mut lapic = LOCAL_APIC.lock();
     let mut ioapic = IO_APIC.lock();
+
     map_lapic_memory();
     lapic.init();
+
     let (ioapic_base, ioapic_gsi_base) = get_ioapic_addrs();
     map_ioapic_memory(ioapic_base as u64);
     ioapic.init(ioapic_base, ioapic_gsi_base);
-    let rsdp = acpi::rsdp::Rsdp::get();
-    let sdt = acpi::sdt::SDTArray::get(rsdp.get_table());
-    let madt_info = acpi::madt::parse_madt(&sdt);
-
-    let mut pit_gsi = 0;
-    for ovr in madt_info.overrides.iter() {
-        if ovr.source == 0 {
-            pit_gsi = ovr.gsi;
-            break;
-        }
-    }
-
-    ioapic.set_entry(pit_gsi, 32, lapic.id());
+    ioapic.mask_all();
 }
 
 fn map_lapic_memory() {
-    unsafe {
-        let apic_phys = get_apic_base() as u64;
-        let mut pager = PAGER.lock();
-        pager.map_mmio_addr(apic_phys).unwrap();
-        drop(pager);
-    }
+    let apic_phys = get_apic_base() as u64;
+    let mut pager = PAGER.lock();
+    pager.map_mmio_addr(apic_phys).unwrap();
+    drop(pager);
 }
 
 fn map_ioapic_memory(base_addr: u64) {

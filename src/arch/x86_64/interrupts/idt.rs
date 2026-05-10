@@ -1,5 +1,6 @@
 use core::arch::asm;
 use lazy_static::lazy_static;
+use crate::klogln;
 use crate::arch::x86_64::interrupts::handle;
 
 #[repr(C, packed)]
@@ -65,14 +66,14 @@ pub fn init_idt() {
 
     unsafe {
         asm!(
-            "lidt ({ptr})",
+            "lidt [{ptr}]",
             ptr = in(reg) &idt_ptr,
-            options(att_syntax, nostack, preserves_flags)
+            options(nostack, preserves_flags)
         );
 
         asm!(
             "sti",
-            options(att_syntax, nostack, preserves_flags)
+            options(nostack, preserves_flags)
         )
     }
 }
@@ -113,6 +114,11 @@ pub extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         14 => handle::page_fault_handler(frame),
         15 => handle::unexpected_interrupt_handler(frame),
         35 => handle::lapic_interrupt_handler(), // LAPIC Timer
-        _ => {},
+        _ => {
+            if frame.interrupt_number >= 32 {
+                klogln!("Spurious IRQ: {}", frame.interrupt_number);
+                crate::arch::x86_64::apic::lapic::send_apic_eoi();
+            }
+        },
     }
 }

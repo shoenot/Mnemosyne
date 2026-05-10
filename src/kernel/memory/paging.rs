@@ -67,29 +67,27 @@ pub fn get_flags(
 fn get_cr3() -> u64 {
     let cr3: u64;
     unsafe {
-        asm!(
-            "movq %cr3, {0}", 
+        asm!("mov {0}, cr3", 
             out(reg) cr3, 
-            options(att_syntax, nostack, preserves_flags)
-        );
+            options(nostack, preserves_flags));
     };
     cr3
 }
 
 fn load_cr3(addr: u64) {
     unsafe {
-        asm!(
-            "movq {0}, %cr3",
+        asm!("mov cr3, {0}",
             in(reg) addr, 
-            options(att_syntax, nostack, preserves_flags)
-        );
+            options(nostack, preserves_flags));
     };
 }
 
 
 pub fn flush_tlb(virt: u64) {
     unsafe {
-        asm!("invlpg ({0})", in(reg) virt, options(att_syntax, nostack, preserves_flags))
+        asm!("invlpg [{0}]", 
+            in(reg) virt, 
+            options(nostack, preserves_flags))
     }
 }
 

@@ -10,7 +10,7 @@ IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
 QEMUFLAGS   := -m 2G -cpu host,migratable=no,+invtsc
 
 # --- Toolchain ---
-AS := /home/shurjo/build/cross/bin/x86_64-elf-as
+AS := nasm
 
 # The path where Cargo will output your kernel ELF
 KERNEL_ELF := target/$(TARGET_NAME)/release/$(BIN_NAME)
@@ -47,9 +47,9 @@ run-bios: build/$(IMAGE_NAME).iso
 		$(QEMUFLAGS)
 
 # --- Assembly Build Step ---
-build/idt.o: src/arch/x86_64/interrupts/idt.S
+build/idt.o: src/arch/x86_64/interrupts/idt.asm
 	mkdir -p build/
-	$(AS) src/arch/x86_64/interrupts/idt.S -o build/idt.o
+	$(AS) -f elf64 src/arch/x86_64/interrupts/idt.asm -o build/idt.o
 
 .PHONY: kernel
 kernel: build/idt.o

@@ -15,8 +15,7 @@ struct GDTEntry {
 #[repr(C, packed)]
 struct GDTPointer {
     limit: u16,
-    base: u64,
-}
+    base: u64, }
 
 impl GDTEntry {
     const fn new(access: u8, flags: u8) -> Self {
@@ -108,28 +107,28 @@ pub fn init_gdt() {
 
     unsafe {
         asm!(
-            "lgdt ({ptr})",
-            "pushq $0x08",
-            "leaq 1f(%rip), {tmp}",
-            "pushq {tmp}",
-            "lretq",
-            "1:",
-            "movw $0x10, {tmp:x}",
-            "movw {tmp:x}, %ds",
-            "movw {tmp:x}, %es",
-            "movw {tmp:x}, %ss",
-            "movw $0, {tmp:x}",
-            "movw {tmp:x}, %fs",
-            "movw {tmp:x}, %gs",
+            "lgdt [{ptr}]",
+            "push 0x08",
+            "lea {tmp}, [rip + 2f]", 
+            "push {tmp}",
+            "retfq",     
+            "2:",
+            "mov {tmp:x}, 16",
+            "mov ds, {tmp:x}",
+            "mov es, {tmp:x}",
+            "mov ss, {tmp:x}",
+            "mov {tmp:x}, 0",
+            "mov fs, {tmp:x}",
+            "mov gs, {tmp:x}",
             ptr = in(reg) &ptr,
             tmp = out(reg) _,
-            options(att_syntax, readonly, nostack, preserves_flags)
+            options(readonly, nostack, preserves_flags)
         );
 
         asm!(
-            "ltrw {sel:x}",
+            "ltr {sel:x}",
             sel = in(reg) 0x28_u16,
-            options(att_syntax, nostack, preserves_flags)
-        )
+            options(nostack, preserves_flags)
+        );
     }
 }
