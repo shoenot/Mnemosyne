@@ -27,6 +27,8 @@ use kernel::memory::heap::KernelAllocator;
 use kernel::time;
 use kernel::time::*;
 
+use kernel::thread::{switch::*, schedule::*, ThreadError};
+
 use tests::memory_tests::*;
 
 #[global_allocator]
@@ -70,14 +72,42 @@ pub extern "C" fn kmain() -> ! {
 
     init_apic();
 
+    unsafe {
+        let mut cr4: usize;
+        asm!("mov {}, cr4",
+            out(reg) cr4);
+        cr4 |= 1 << 9; // set bit 9 
+        asm!("mov cr4, {}",
+            in(reg) cr4);
+    }
+
     time::init();
     klogln!("Using timer: {:#?} with frequency: {:?}", *TIME_SOURCE.lock(), TIME_SRC_FQ);
     klogln!("");
+    
+    init_clean_fpu();
 
-    arm_sleep_ns(1_000_000_000);
+    let tt1 = test_thread_1 as *const ();  
+    let tt2 = test_thread_2 as *const ();  
+
+    SCHEDULER.lock().spawn(tt1 as usize).unwrap();
+    SCHEDULER.lock().spawn(tt2 as usize).unwrap();
+
+    arm_sleep_ns(10_000_000);
+
+    SCHEDULER.lock().schedule();
+
+    hcf();
+}
+
+fn test_thread_1() -> ! {
     loop {
-        unsafe {
-            asm!("sti", "hlt", options(nomem, nostack));
-        }
+        klogln!("A");
+    }
+}
+
+fn test_thread_2() -> ! {
+    loop {
+        klogln!("B");
     }
 }

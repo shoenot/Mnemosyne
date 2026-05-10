@@ -1,26 +1,23 @@
+pub mod switch;
+pub mod schedule;
 
+use core::{alloc::LayoutError, fmt};
 
-enum ThreadState {
-    Ready,
-    Running,
-    Blocked,
-    Terminated,
+#[derive(Debug)]
+pub enum ThreadError {
+    SpawnAllocationError(LayoutError),
 }
 
-enum ThreadPriority {
-    Idle,
-    Low,
-    Medium,
-    High,
-    Maximum,
+impl fmt::Display for ThreadError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::SpawnAllocationError(layout) => write!(f, "Allocation Error; Thread spawn failed.\nDetails: {:?}", layout),
+        }
+    }
 }
 
-#[repr(C)]
-struct 
-
-#[repr(C)]
-struct ThreadControlBlock {
-    thread_id: usize,
-    state: ThreadState,
-    priority: usize
+impl From<LayoutError> for ThreadError {
+    fn from(value: LayoutError) -> Self {
+        ThreadError::SpawnAllocationError(value)
+    }
 }

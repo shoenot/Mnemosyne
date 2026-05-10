@@ -51,8 +51,12 @@ build/idt.o: src/arch/x86_64/interrupts/idt.asm
 	mkdir -p build/
 	$(AS) -f elf64 src/arch/x86_64/interrupts/idt.asm -o build/idt.o
 
+build/switch.o: src/kernel/thread/switch.asm 
+	mkdir -p build/
+	$(AS) -f elf64 src/kernel/thread/switch.asm -o build/switch.o
+
 .PHONY: kernel
-kernel: build/idt.o
+kernel: build/idt.o build/switch.o
 	cargo build --release --target $(TARGET_NAME)
 
 # ISO Creation (Hybrid BIOS/UEFI)

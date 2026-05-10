@@ -107,6 +107,9 @@ impl RawLock for RawTicketLock {
     }
 }
 
+unsafe impl Send for RawTicketLock {}
+unsafe impl Sync for RawTicketLock {}
+
 // Generic Lock
 
 #[derive(Debug)]
@@ -133,8 +136,8 @@ impl<R: RawLock, T> Lock<R, T> {
     }
 }
 
-unsafe impl<R: RawLock + Send, T> Sync for Lock<R, T> where T: Send {}
-unsafe impl<R: RawLock + Sync, T> Send for Lock<R, T> where T: Send {}
+unsafe impl<R: RawLock + Send, T> Send for Lock<R, T> where T: Send {}
+unsafe impl<R: RawLock + Sync, T> Sync for Lock<R, T> where T: Send {}
 
 // lock guard wrapper
 
