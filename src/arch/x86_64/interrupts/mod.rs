@@ -1,3 +1,3 @@
 pub mod gdt;
-pub mod idt;
 pub mod handle;
+pub mod idt;

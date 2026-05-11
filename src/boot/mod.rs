@@ -1,16 +1,14 @@
 use limine::{
     BaseRevision,
-    RequestsStartMarker,
     RequestsEndMarker,
+    RequestsStartMarker,
+    request::{
+        FramebufferRequest,
+        HhdmRequest,
+        MemmapRequest,
+        RsdpRequest,
+    },
 };
-
-use limine::request::{
-    FramebufferRequest,
-    MemmapRequest,
-    HhdmRequest,
-    RsdpRequest,
-};
-
 
 #[used]
 #[unsafe(no_mangle)]
@@ -46,4 +44,3 @@ static _START_MARKER: RequestsStartMarker = RequestsStartMarker::new();
 #[unsafe(no_mangle)]
 #[unsafe(link_section = ".requests_end")]
 static _END_MARKER: RequestsEndMarker = RequestsEndMarker::new();
-

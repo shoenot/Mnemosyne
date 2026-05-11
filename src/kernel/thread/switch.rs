@@ -1,7 +1,9 @@
+use core::{
+    arch::asm,
+    ptr::null_mut,
+};
+
 use super::schedule::*;
-use core::ops::DerefMut;
-use core::ptr::null_mut;
-use core::arch::asm;
 
 #[repr(C, align(16))]
 pub struct ThreadContext {
@@ -33,10 +35,21 @@ pub struct ThreadContext {
 
 impl ThreadContext {
     pub fn zero_gp(&mut self) {
-        self.rax = 0; self.rbx = 0; self.rcx = 0; self.rdx = 0;
-        self.rsi = 0; self.rdi = 0; self.rbp = 0; 
-        self.r8 = 0; self.r9 = 0; self.r10 = 0; self.r11 = 0;
-        self.r12 = 0; self.r13 = 0; self.r14 = 0; self.r15 = 0;
+        self.rax = 0;
+        self.rbx = 0;
+        self.rcx = 0;
+        self.rdx = 0;
+        self.rsi = 0;
+        self.rdi = 0;
+        self.rbp = 0;
+        self.r8 = 0;
+        self.r9 = 0;
+        self.r10 = 0;
+        self.r11 = 0;
+        self.r12 = 0;
+        self.r13 = 0;
+        self.r14 = 0;
+        self.r15 = 0;
     }
 }
 
@@ -53,9 +66,12 @@ pub struct SwitchContext {
 
 impl SwitchContext {
     pub fn init(&mut self) {
-        self.r12 = 0; self.r13 = 0; 
-        self.r14 = 0; self.r15 = 0;
-        self.rbx = 0; self.rbp = 0;
+        self.r12 = 0;
+        self.r13 = 0;
+        self.r14 = 0;
+        self.r15 = 0;
+        self.rbx = 0;
+        self.rbp = 0;
     }
 }
 
@@ -76,7 +92,19 @@ pub struct ExtendedContext {
 
 impl ExtendedContext {
     pub const fn new() -> Self {
-        Self { fcw: 0, fsw: 0, ftw: 0, fop: 0, f_rip: 0, f_rdp: 0, mxcsr: 0, mxcsr_mask: 0, mmx_regs: [[0; 16]; 8], sse_regs: [[0; 16]; 16], reserved: [0; 96] }
+        Self {
+            fcw: 0,
+            fsw: 0,
+            ftw: 0,
+            fop: 0,
+            f_rip: 0,
+            f_rdp: 0,
+            mxcsr: 0,
+            mxcsr_mask: 0,
+            mmx_regs: [[0; 16]; 8],
+            sse_regs: [[0; 16]; 16],
+            reserved: [0; 96],
+        }
     }
 
     pub unsafe fn init_default_state(&mut self) {
@@ -95,7 +123,7 @@ pub struct ThreadControlBlock {
     pub thread_id: usize,
     pub state: ThreadState,
     pub priority: ThreadPriority,
-    pub total_runtime: usize, 
+    pub total_runtime: usize,
     pub stack_ptr: usize,
     pub stack_base: usize,
     pub extended_context: *mut ExtendedContext,
@@ -117,9 +145,7 @@ impl ThreadControlBlock {
 
 unsafe extern "sysv64" {
     pub fn switch_threads(
-        old_stack_ptr: *mut usize,
-        new_stack_ptr: usize,
-        old_extended_context: *mut ExtendedContext,
+        old_stack_ptr: *mut usize, new_stack_ptr: usize, old_extended_context: *mut ExtendedContext,
         new_extended_context: *const ExtendedContext,
     );
 }

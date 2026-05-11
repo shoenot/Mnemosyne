@@ -1,12 +1,32 @@
-use core::ptr::{null, null_mut, copy_nonoverlapping};
-use alloc::alloc::{Layout, alloc};
-use core::mem::size_of;
-use core::sync::atomic::{AtomicUsize, Ordering};
-use crate::kernel::lock::TicketLock;
-use super::switch::*;
-use super::ThreadError;
-use crate::arch::x86_64::interrupts::gdt::{KERNEL_CS, KERNEL_SS};
-use lazy_static::lazy_static;
+#![allow(dead_code)]
+
+use alloc::alloc::{
+    Layout,
+    alloc,
+};
+use core::{
+    mem::size_of,
+    ptr::{
+        copy_nonoverlapping,
+        null_mut,
+    },
+    sync::atomic::{
+        AtomicUsize,
+        Ordering,
+    },
+};
+
+use super::{
+    ThreadError,
+    switch::*,
+};
+use crate::{
+    arch::x86_64::interrupts::gdt::{
+        KERNEL_CS,
+        KERNEL_SS,
+    },
+    kernel::lock::TicketLock,
+};
 
 pub static SCHEDULER: TicketLock<SchedulerState> = TicketLock::new(SchedulerState::new());
 
@@ -42,25 +62,20 @@ pub struct SchedulerState {
 unsafe impl Send for SchedulerState {}
 unsafe impl Sync for SchedulerState {}
 
-pub fn get_new_tid() -> usize {
-    GLOBAL_TID.fetch_add(1, Ordering::Relaxed)
-}
+pub fn get_new_tid() -> usize { GLOBAL_TID.fetch_add(1, Ordering::Relaxed) }
 
 pub fn init_clean_fpu() {
     let mut clean_state = ExtendedContext::new();
-    unsafe { clean_state.init_default_state(); }
+    unsafe {
+        clean_state.init_default_state();
+    }
     let mut dec = DEFAULT_EXTENDED_CONTEXT.lock();
     *dec = Some(clean_state);
 }
 
 impl SchedulerState {
     pub const fn new() -> Self {
-        SchedulerState { 
-            ready_queue_head: null_mut(),
-            ready_queue_tail: null_mut(),
-            current_thread: null_mut(),
-            idle_thread: null_mut(),
-        }
+        SchedulerState { ready_queue_head: null_mut(), ready_queue_tail: null_mut(), current_thread: null_mut(), idle_thread: null_mut() }
     }
 
     pub fn push(&mut self, thread: *mut ThreadControlBlock) {
@@ -107,14 +122,14 @@ impl SchedulerState {
         {
             let dec = DEFAULT_EXTENDED_CONTEXT.lock();
             let default_fpu_ref = dec.as_ref().expect("Clean FPU not initialized");
-            unsafe { copy_nonoverlapping(default_fpu_ref as *const ExtendedContext, fpu_ptr, 1) } ;
+            unsafe { copy_nonoverlapping(default_fpu_ref as *const ExtendedContext, fpu_ptr, 1) };
         }
 
         let stack_top = stack_base + stack_size;
         let context_addr = stack_top - size_of::<ThreadContext>();
         let context_addr = context_addr & !0xF; // align to 16 bytes
         let context = unsafe { &mut *(context_addr as *mut ThreadContext) };
-        
+
         context.zero_gp();
         context.instruction_pointer = entry_point as u64;
         context.stack_pointer = stack_top as u64;
@@ -126,17 +141,19 @@ impl SchedulerState {
         let switch_context = unsafe { &mut *(switch_addr as *mut SwitchContext) };
         switch_context.init();
 
-        unsafe extern "C" { fn thread_entry_stub(); }
+        unsafe extern "C" {
+            fn thread_entry_stub();
+        }
         switch_context.rip = (thread_entry_stub as *const ()) as usize;
 
-        // init TCB 
+        // init TCB
         unsafe {
             (*tcb_ptr).init(switch_addr, stack_base, fpu_ptr);
         }
 
         // push new tcb to queue
         self.push(tcb_ptr);
-        
+
         Ok(())
     }
 
@@ -164,9 +181,9 @@ impl SchedulerState {
         if !prev_thread.is_null() {
             unsafe {
                 switch_threads(
-                    &mut (*prev_thread).stack_ptr as *mut usize, 
-                    (*next_thread).stack_ptr, 
-                    (*prev_thread).extended_context, 
+                    &mut (*prev_thread).stack_ptr as *mut usize,
+                    (*next_thread).stack_ptr,
+                    (*prev_thread).extended_context,
                     (*next_thread).extended_context,
                 );
             }
@@ -178,7 +195,7 @@ impl SchedulerState {
                     &mut dummy_stack_ptr as *mut usize,
                     (*next_thread).stack_ptr,
                     &mut dummy_fpu as *mut ExtendedContext,
-                    (*next_thread).extended_context
+                    (*next_thread).extended_context,
                 );
             }
         }
@@ -187,6 +204,7 @@ impl SchedulerState {
 
 #[unsafe(no_mangle)]
 pub extern "C" fn unlock_scheduler() {
-    unsafe { SCHEDULER.force_unlock(); }
+    unsafe {
+        SCHEDULER.force_unlock();
+    }
 }
-

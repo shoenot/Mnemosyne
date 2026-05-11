@@ -1,15 +1,15 @@
 use core::arch::asm;
+
 use crate::kernel::time::ClockSource;
 
+#[allow(dead_code)]
 #[derive(Copy, Clone, Debug)]
 pub struct TSC {
     pub frequency: usize,
 }
 
 impl ClockSource for TSC {
-    fn name(&self) -> &'static str {
-        "TSC"
-    }
+    fn name(&self) -> &'static str { "TSC" }
 
     fn read_counter(&self) -> usize {
         let mut lo: u32;
@@ -25,8 +25,5 @@ impl ClockSource for TSC {
         (hi as usize) << 32 | lo as usize
     }
 
-    fn frequency(&self) -> usize {
-        self.frequency
-    }
+    fn frequency(&self) -> usize { self.frequency }
 }
-

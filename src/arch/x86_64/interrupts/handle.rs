@@ -1,14 +1,14 @@
 use core::arch::asm;
 
 use crate::{
-    GLOBAL_VMM, 
-    SCHEDULER, 
-    klogln, 
-    kernel::time::arm_sleep_ns,
+    GLOBAL_VMM,
+    SCHEDULER,
     arch::x86_64::{
-        interrupts::idt::InterruptStackFrame, 
         apic::lapic::send_apic_eoi,
+        interrupts::idt::InterruptStackFrame,
     },
+    kernel::time::arm_sleep_ns,
+    klogln,
 };
 
 // HELPERS
@@ -27,11 +27,7 @@ pub fn read_cr2() -> u64 {
 
 // Interrupt 13
 pub fn gpf_handler(frame: &InterruptStackFrame) {
-    panic!(
-        "General Protection Fault.\nError Code: {}\nInstruction Pointer: {:#X}\n", 
-        frame.error_code, 
-        frame.instruction_pointer
-    );
+    panic!("General Protection Fault.\nError Code: {}\nInstruction Pointer: {:#X}\n", frame.error_code, frame.instruction_pointer);
 }
 
 // Interrupt 14
@@ -43,10 +39,7 @@ pub fn page_fault_handler(frame: &InterruptStackFrame) {
     let fixed = vmm.handle_page_fault(addr, error_code);
 
     if !fixed {
-        panic!(
-            "Page Fault Exception.\nAt address: {:#X}\nError Code: {:#b}\nStack Frame:\n{:#?}",
-            addr, error_code, frame
-        )
+        panic!("Page Fault Exception.\nAt address: {:#X}\nError Code: {:#b}\nStack Frame:\n{:#?}", addr, error_code, frame)
     }
 }
 

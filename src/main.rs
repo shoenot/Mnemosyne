@@ -1,35 +1,41 @@
+#![allow(unreachable_code)]
 #![no_std]
 #![no_main]
 mod arch;
+mod boot;
 mod drivers;
 mod kernel;
-mod boot;
-mod tests;
 mod panic;
+mod tests;
 
 extern crate alloc;
 use core::arch::asm;
 
+pub use arch::x86_64::{
+    IO_APIC,
+    LOCAL_APIC,
+};
+use arch::x86_64::{
+    init_apic,
+    init_interrupts,
+};
 pub use boot::*;
-
+use kernel::{
+    lock::TicketLock,
+    memory::{
+        heap::KernelAllocator,
+        paging::*,
+        pmm::*,
+        vmm::*,
+    },
+    thread::schedule::*,
+    time,
+    time::*,
+};
 use panic::hcf;
-
-use arch::x86_64::{init_interrupts, init_apic};
-pub use arch::x86_64::{LOCAL_APIC, IO_APIC};
-
-use kernel::lock::TicketLock;
-
-use kernel::memory::pmm::*;
-use kernel::memory::paging::*;
-use kernel::memory::vmm::*;
-use kernel::memory::heap::KernelAllocator;
-
-use kernel::time;
-use kernel::time::*;
-
-use kernel::thread::{switch::*, schedule::*, ThreadError};
-
 use tests::memory_tests::*;
+
+use crate::arch::x86_64::io::{inb, outb};
 
 #[global_allocator]
 pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -43,11 +49,11 @@ pub extern "C" fn kmain() -> ! {
     if !BASE_REVISION.is_supported() {
         hcf();
     }
-    
+
     init_interrupts();
 
     klogln!("INITIATING MEMORY MANAGERS... ");
-    
+
     // Inititate PMM
     {
         let mut allocator = ALLOCATOR.lock();
@@ -61,9 +67,9 @@ pub extern "C" fn kmain() -> ! {
     }
 
     klogln!("SWITCHED CR3. PAGING HANDOVER COMPLETE.");
-    
+
     klogln!("RUNNING MEMORY TESTS");
-    
+
     test_kmalloc();
     test_vmalloc();
     test_collections();
@@ -84,11 +90,11 @@ pub extern "C" fn kmain() -> ! {
     time::init();
     klogln!("Using timer: {:#?} with frequency: {:?}", *TIME_SOURCE.lock(), TIME_SRC_FQ);
     klogln!("");
-    
+
     init_clean_fpu();
 
-    let tt1 = test_thread_1 as *const ();  
-    let tt2 = test_thread_2 as *const ();  
+    let tt1 = test_thread_1 as *const ();
+    let tt2 = test_thread_2 as *const ();
 
     SCHEDULER.lock().spawn(tt1 as usize).unwrap();
     SCHEDULER.lock().spawn(tt2 as usize).unwrap();

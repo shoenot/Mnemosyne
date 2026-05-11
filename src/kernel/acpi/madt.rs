@@ -1,10 +1,12 @@
-use crate::kernel::acpi::sdt::{
-    SDTArray,
-    ACPISDTHeader,
-};
+#![allow(dead_code)]
 
 use alloc::vec::Vec;
 use core::ptr::read_unaligned;
+
+use crate::kernel::acpi::sdt::{
+    ACPISDTHeader,
+    SDTArray,
+};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -87,12 +89,8 @@ pub fn parse_madt(sdt_array: &SDTArray) -> MadtInfo {
 
     let madt = unsafe { &*(madt_addr as *const MADT) };
 
-    let mut info = MadtInfo {
-        local_apic_base: madt.local_apic_address,
-        local_apics: Vec::new(),
-        io_apics: Vec::new(),
-        overrides: Vec::new(),
-    };
+    let mut info =
+        MadtInfo { local_apic_base: madt.local_apic_address, local_apics: Vec::new(), io_apics: Vec::new(), overrides: Vec::new() };
 
     let total_length = madt.header.length as usize;
     let mut current_addr = madt_addr + size_of::<MADT>();
@@ -107,32 +105,24 @@ pub fn parse_madt(sdt_array: &SDTArray) -> MadtInfo {
             0 => {
                 let entry = unsafe { read_unaligned(current_addr as *const ProcLocalApicEntry) };
                 let is_enabled = (entry.flags & 1) != 0;
-                info.local_apics.push(LocalApic { 
-                    proc_id: entry.acpi_proc_id, 
-                    apic_id: entry.apic_id, 
-                    is_enabled 
-                });
-            },
+                info.local_apics.push(LocalApic { proc_id: entry.acpi_proc_id, apic_id: entry.apic_id, is_enabled });
+            }
             1 => {
                 let entry = unsafe { read_unaligned(current_addr as *const IoApicEntry) };
-                info.io_apics.push(IoApic { 
-                    id: entry.io_apic_id, 
-                    addr: entry.io_apic_addr, 
-                    gsi_base: entry.global_system_interrupt_base 
-                });
-            },
+                info.io_apics.push(IoApic { id: entry.io_apic_id, addr: entry.io_apic_addr, gsi_base: entry.global_system_interrupt_base });
+            }
             2 => {
                 let entry = unsafe { read_unaligned(current_addr as *const InterruptSourceOverrrideEntry) };
-                info.overrides.push(InterruptOverride { 
+                info.overrides.push(InterruptOverride {
                     bus: entry.bus,
                     source: entry.source,
                     gsi: entry.global_system_interrupt,
-                    flags: entry.flags 
+                    flags: entry.flags,
                 })
             }
-            _ => {},
+            _ => {}
         }
-        
+
         current_addr += entry_length;
     }
     info

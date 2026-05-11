@@ -1,7 +1,10 @@
-use alloc::{slice, vec::Vec};
+#![allow(dead_code)]
+
+use alloc::vec::Vec;
 use core::slice::from_raw_parts;
-use crate::HHDMOFFSET;
+
 use super::rsdp::AcpiRoot;
+use crate::HHDMOFFSET;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -31,28 +34,22 @@ impl SDTArray {
                     let header = *header_ptr;
                     let len = (header.length as usize - size_of::<ACPISDTHeader>()) / size_of::<u32>();
                     let array_ptr = (addr + size_of::<ACPISDTHeader>()) as *const u32;
-                    let sdt_addresses = from_raw_parts(array_ptr, len)
-                        .iter()
-                        .map(|&ptr| ptr as usize + *HHDMOFFSET)
-                        .collect();
+                    let sdt_addresses = from_raw_parts(array_ptr, len).iter().map(|&ptr| ptr as usize + *HHDMOFFSET).collect();
 
                     SDTArray { header, sdt_addresses }
                 }
-            },
+            }
             AcpiRoot::XSDT(addr) => {
                 let header_ptr = addr as *const ACPISDTHeader;
                 unsafe {
                     let header = *header_ptr;
                     let len = (header.length as usize - size_of::<ACPISDTHeader>()) / size_of::<u64>();
                     let array_ptr = (addr + size_of::<ACPISDTHeader>()) as *const u64;
-                    let sdt_addresses = from_raw_parts(array_ptr, len)
-                        .iter()
-                        .map(|&ptr| ptr as usize + *HHDMOFFSET)
-                        .collect();
+                    let sdt_addresses = from_raw_parts(array_ptr, len).iter().map(|&ptr| ptr as usize + *HHDMOFFSET).collect();
 
                     SDTArray { header, sdt_addresses }
                 }
-            },
+            }
         }
     }
 

@@ -1,9 +1,16 @@
-use alloc::alloc::{Layout, alloc};
-use crate::kernel::lock::TicketLock;
-use super::paging::*;
-use super::pmm::*;
+#![allow(dead_code)]
 
-pub static VM_FLAG_NONE: usize = 0;
+use alloc::alloc::{
+    Layout,
+    alloc,
+};
+
+use super::{
+    paging::*,
+    pmm::*,
+};
+use crate::kernel::lock::TicketLock;
+
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;
 pub static VM_FLAG_USER: usize = 1 << 2;
@@ -22,12 +29,24 @@ fn convert_vm_flags(flags: usize) -> usize {
     let mut no_execute = true;
     let mut cache_disable = false;
     let mut write_through = false;
-    if flags & VM_FLAG_WRITE != 0 { writable = true };
-    if flags & VM_FLAG_USER  != 0 { user_access = true };
-    if flags & VM_FLAG_GLOBAL  != 0 { global = true };
-    if flags & VM_FLAG_EXEC != 0 { no_execute = false };
-    if flags & VM_FLAG_CACHE_DISABLE != 0 { cache_disable = true };
-    if flags & VM_FLAG_WRITE_THROUGH != 0 { write_through = true };
+    if flags & VM_FLAG_WRITE != 0 {
+        writable = true
+    };
+    if flags & VM_FLAG_USER != 0 {
+        user_access = true
+    };
+    if flags & VM_FLAG_GLOBAL != 0 {
+        global = true
+    };
+    if flags & VM_FLAG_EXEC != 0 {
+        no_execute = false
+    };
+    if flags & VM_FLAG_CACHE_DISABLE != 0 {
+        cache_disable = true
+    };
+    if flags & VM_FLAG_WRITE_THROUGH != 0 {
+        write_through = true
+    };
     get_flags(true, writable, user_access, write_through, cache_disable, false, false, false, global, no_execute) as usize
 }
 
@@ -59,9 +78,7 @@ pub struct VirtMemManager {
 unsafe impl Send for VirtMemManager {}
 unsafe impl Sync for VirtMemManager {}
 
-fn align_up(addr: usize) -> usize {
-    (addr + 0xFFF) & !0xFFF
-}
+fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 
 impl VirtMemManager {
     pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static TicketLock<Allocator>) -> Self {
@@ -69,14 +86,10 @@ impl VirtMemManager {
     }
 
     pub fn mmap(&mut self, mut size: usize, flags: usize) -> Option<usize> {
-        let mask = if flags & VM_FLAG_HUGE != 0 {
-            HUGE_PAGE_SIZE - 1
-        } else {
-            NORMAL_PAGE_SIZE - 1 
-        };
+        let mask = if flags & VM_FLAG_HUGE != 0 { HUGE_PAGE_SIZE - 1 } else { NORMAL_PAGE_SIZE - 1 };
 
         size = (size + mask) & !mask;
-        
+
         let mut base = VM_BASE_ADDR;
         let mut gap_start: Option<usize> = None;
         let mut prev_ptr = None;
@@ -91,13 +104,13 @@ impl VirtMemManager {
             } else {
                 gap_start = Some(base);
             }
-                
+
             if gap_start.is_none() {
                 while let Some(curr_ptr) = current_ptr {
                     let curr_node = &*curr_ptr;
                     base = (curr_node.start + curr_node.size + mask) & !mask;
 
-                    let next_ptr = curr_node.next; 
+                    let next_ptr = curr_node.next;
 
                     if let Some(n_ptr) = next_ptr {
                         let next_node = &*n_ptr;
@@ -108,7 +121,7 @@ impl VirtMemManager {
                             break;
                         }
                     }
-                    
+
                     prev_ptr = Some(curr_ptr);
                     current_ptr = next_ptr;
                 }
@@ -193,7 +206,7 @@ impl VirtMemManager {
 
         while current_page < (target_vma.start + target_vma.size) {
             let virt = VirtAddress(current_page as u64);
-            
+
             if let Some(phys_addr) = pagerlock.translate(virt, *HHDMOFFSET as u64) {
                 alloclock.free(phys_addr as usize, block_size);
                 pagerlock.unmap_page(virt, *HHDMOFFSET as u64, block_size);
@@ -213,13 +226,13 @@ impl VirtMemManager {
 
         unsafe {
             while let Some(curr) = current_ptr {
-                let node = &mut *curr; 
+                let node = &mut *curr;
 
                 if node.start == start_addr {
                     if node.size != size {
                         return Err("Size does not match VMA region exactly");
                     }
-                    node.flags = new_flags; 
+                    node.flags = new_flags;
                     target_vma_ptr = Some(curr);
                     break;
                 }
@@ -237,7 +250,7 @@ impl VirtMemManager {
         let block_size = if is_huge { BlockSize::Huge } else { BlockSize::Normal };
 
         let mut current_page = target_vma.start;
-        
+
         while current_page < (target_vma.start + target_vma.size) {
             let virt = VirtAddress(current_page as u64);
             let hwflags = convert_vm_flags(new_flags) as u64;
@@ -247,7 +260,7 @@ impl VirtMemManager {
             flush_tlb(current_page as u64);
             current_page += step_size;
         }
-        Ok(()) 
+        Ok(())
     }
 
     pub fn handle_page_fault(&mut self, addr: usize, error_code: usize) -> bool {
@@ -264,7 +277,7 @@ impl VirtMemManager {
                 current_ptr = node.next;
             }
         }
-        
+
         let target_vma = match target_vma_ptr {
             Some(ptr) => unsafe { &*ptr },
             None => return false,
@@ -284,7 +297,6 @@ impl VirtMemManager {
         let fault_page = addr & !mask;
         let virt = VirtAddress(fault_page as u64);
 
-        
         let mut alloclock = self.allocator.lock();
         let phys_frame = match alloclock.alloc(block_size) {
             Some(addr) => addr as u64,
@@ -294,10 +306,11 @@ impl VirtMemManager {
 
         let hw_flags = convert_vm_flags(target_vma.flags) as u64;
         let mut pagerlock = self.pager.lock();
-        pagerlock.map_page(virt, phys_frame, hw_flags, *HHDMOFFSET as u64, block_size)
+        pagerlock
+            .map_page(virt, phys_frame, hw_flags, *HHDMOFFSET as u64, block_size)
             .expect("FATAL: Pager failed to map memory during Page Fault!");
         drop(pagerlock);
-        
+
         flush_tlb(addr as u64);
 
         true

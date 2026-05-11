@@ -1,17 +1,24 @@
-use core::arch::asm;
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::{
+    arch::asm,
+    sync::atomic::{
+        AtomicBool,
+        AtomicUsize,
+        Ordering,
+    },
+};
+
 use crate::{
+    LOCAL_APIC,
+    PAGER,
     arch::x86_64::{
-        timer,
         apic::lapic::*,
-        cpuid::*
+        cpuid::*,
+        timer,
     },
     kernel::{
-        lock::TicketLock,
         acpi::hpet::get_hpet_base_addr,
+        lock::TicketLock,
     },
-    PAGER,
-    LOCAL_APIC,
 };
 
 pub static TIME_SRC_FQ: AtomicUsize = AtomicUsize::new(0);
@@ -45,11 +52,10 @@ impl ClockSource for TimeSource {
         }
     }
 
-    fn frequency(&self) -> usize {
-        TIME_SRC_FQ.load(Ordering::Relaxed)
-    }
+    fn frequency(&self) -> usize { TIME_SRC_FQ.load(Ordering::Relaxed) }
 }
 
+#[allow(dead_code)]
 pub trait ClockSource {
     fn name(&self) -> &'static str;
     fn read_counter(&self) -> usize;
@@ -64,7 +70,7 @@ pub fn arm_sleep_ns(ns: usize) {
         let mut lo: u32;
         let mut hi: u32;
         unsafe {
-            // read tsc 
+            // read tsc
             asm!("rdtsc",
                 out("eax") lo, out("edx") hi, options(nomem, nostack));
 
@@ -72,13 +78,13 @@ pub fn arm_sleep_ns(ns: usize) {
             let target = current + tsc_ticks;
             let tgt_lo = (target & 0xFFFF_FFFF) as u32;
             let tgt_hi = (target >> 32) as u32;
-            
+
             // set deadline
             asm!("wrmsr",
                 in("ecx") IA32_TSC_DEADLINE, in("eax") tgt_lo, in("edx") tgt_hi, options(nomem, nostack));
         }
     } else {
-        // fallback to lapic 
+        // fallback to lapic
         let lapic_fq = LAPIC_FQ.load(Ordering::Relaxed);
         let lapic_ticks = (ns as usize * lapic_fq) / 1_000_000_000;
         LOCAL_APIC.lock().arm_oneshot(lapic_ticks as u32);
@@ -113,16 +119,18 @@ pub fn init() {
 
     if need_calibration {
         let tsc = timer::tsc::TSC { frequency: 0 };
-        
+
         // start tsc (if it exists)
         let start_tsc = if use_tsc && tsc_fq == 0 {
-            unsafe { core::arch::asm!("lfence"); }
+            unsafe {
+                core::arch::asm!("lfence");
+            }
             tsc.read_counter()
-        } else { 
-            0 
+        } else {
+            0
         };
-        
-        // start lapic 
+
+        // start lapic
         let lapic = LOCAL_APIC.lock();
         lapic.timer_setup(35, 0x0FFF_FFFF, TimerMode::OneShot);
         let start_lapic = lapic.current_count();
@@ -131,16 +139,20 @@ pub fn init() {
         if let Some(hpet) = &hpet_opt {
             let target = hpet.frequency / 100;
             let start = hpet.read_counter();
-            while hpet.read_counter() < start + target { core::hint::spin_loop(); }
-        } 
+            while hpet.read_counter() < start + target {
+                core::hint::spin_loop();
+            }
+        }
 
         // stop the timers
         let end_lapic = lapic.current_count();
         let end_tsc = if use_tsc && tsc_fq == 0 {
-            unsafe { core::arch::asm!("lfence"); }
+            unsafe {
+                core::arch::asm!("lfence");
+            }
             tsc.read_counter()
-        } else { 
-            0 
+        } else {
+            0
         };
 
         if lapic_fq == 0 {
@@ -166,7 +178,9 @@ pub fn init() {
 
     // main system clock ( TSC or HPET )
     if use_tsc {
-        if tsc_fq == 0 { panic!("FATAL: Failed to obtain TSC frequency."); }
+        if tsc_fq == 0 {
+            panic!("FATAL: Failed to obtain TSC frequency.");
+        }
         let tsc = timer::tsc::TSC { frequency: tsc_fq };
         TIME_SRC_FQ.store(tsc_fq, Ordering::Relaxed);
         *TIME_SOURCE.lock() = TimeSource::TSC(tsc);

@@ -1,5 +1,5 @@
 # Nuke built-in rules and variables.
-MAKEFLAGS += -rR
+MAKEFLAGS += -rR --silent
 .SUFFIXES:
 
 # --- Configuration ---
@@ -67,15 +67,15 @@ build/$(IMAGE_NAME).iso: build_deps/limine/limine kernel
 	mkdir -p iso_root/EFI/BOOT
 	
 	# Copy the kernel from the cargo target directory
-	cp -v $(KERNEL_ELF) iso_root/boot/kernel
-	cp -v build_deps/limine.conf iso_root/boot/limine/
+	cp $(KERNEL_ELF) iso_root/boot/kernel
+	cp build_deps/limine.conf iso_root/boot/limine/
 	
 	# x86_64 Specific Limine binaries
-	cp -v build_deps/limine/limine-bios.sys build_deps/limine/limine-bios-cd.bin build_deps/limine/limine-uefi-cd.bin iso_root/boot/limine/
-	cp -v build_deps/limine/BOOTX64.EFI iso_root/EFI/BOOT/
-	cp -v build_deps/limine/BOOTIA32.EFI iso_root/EFI/BOOT/
+	cp build_deps/limine/limine-bios.sys build_deps/limine/limine-bios-cd.bin build_deps/limine/limine-uefi-cd.bin iso_root/boot/limine/
+	cp build_deps/limine/BOOTX64.EFI iso_root/EFI/BOOT/
+	cp build_deps/limine/BOOTIA32.EFI iso_root/EFI/BOOT/
 	
-	xorriso -as mkisofs -b boot/limine/limine-bios-cd.bin \
+	xorriso -report_about FAILURE -as mkisofs -b boot/limine/limine-bios-cd.bin \
 		-no-emul-boot -boot-load-size 4 -boot-info-table \
 		--efi-boot boot/limine/limine-uefi-cd.bin \
 		-efi-boot-part --efi-boot-image --protective-msdos-label \

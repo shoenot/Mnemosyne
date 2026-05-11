@@ -1,5 +1,5 @@
-pub mod memory;
-pub mod lock;
 pub mod acpi;
-pub mod time;
+pub mod lock;
+pub mod memory;
 pub mod thread;
+pub mod time;

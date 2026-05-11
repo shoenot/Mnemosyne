@@ -1,13 +1,27 @@
-use core::fmt::{self, Write};
+use core::fmt::{
+    self,
+    Write,
+};
+
 use lazy_static::lazy_static;
-
-use simple_psf::Psf;
 use limine::framebuffer::Framebuffer;
+use simple_psf::Psf;
 
-use crate::boot::FRAMEBUFFER_REQUEST;
-use crate::kernel::lock::TicketLock;
-use super::serial::{SerialWriter, init_serial, log_to_serial};
-use super::graphics::{GraphicsWriter, SyncFramebuffer};
+use super::{
+    graphics::{
+        GraphicsWriter,
+        SyncFramebuffer,
+    },
+    serial::{
+        SerialWriter,
+        init_serial,
+        log_to_serial,
+    },
+};
+use crate::{
+    boot::FRAMEBUFFER_REQUEST,
+    kernel::lock::TicketLock,
+};
 
 const FONT_DATA: &[u8] = include_bytes!("../../build_deps/zap-ext-light16.psf");
 
@@ -42,12 +56,7 @@ impl Logger {
         init_serial();
         log_to_serial("\x1B[2J\x1B[H");
         Self {
-            graphics_writer: GraphicsWriter { 
-                current_line: 0, 
-                current_offset: 0, 
-                font: &FONT, 
-                fb: SyncFramebuffer(get_framebuffer()),
-            },
+            graphics_writer: GraphicsWriter { current_line: 0, current_offset: 0, font: &FONT, fb: SyncFramebuffer(get_framebuffer()) },
             serial_writer: SerialWriter {},
         }
     }
@@ -74,6 +83,4 @@ macro_rules! klogln {
 }
 
 #[doc(hidden)]
-pub fn _klog(args: fmt::Arguments) {
-    LOGGER.lock().write_fmt(args).unwrap();
-}
+pub fn _klog(args: fmt::Arguments) { LOGGER.lock().write_fmt(args).unwrap(); }

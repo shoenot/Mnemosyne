@@ -1,8 +1,12 @@
-use core::panic::PanicInfo;
-use core::arch::asm;
+use core::{
+    arch::asm,
+    panic::PanicInfo,
+};
 
-use crate::drivers::logger::LOGGER;
-use crate::klogln;
+use crate::{
+    drivers::logger::LOGGER,
+    klogln,
+};
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
@@ -20,4 +24,3 @@ pub(super) fn hcf() -> ! {
         }
     }
 }
-

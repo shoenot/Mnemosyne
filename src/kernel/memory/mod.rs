@@ -1,4 +1,4 @@
-pub mod pmm;
-pub mod paging;
-pub mod vmm;
 pub mod heap;
+pub mod paging;
+pub mod pmm;
+pub mod vmm;

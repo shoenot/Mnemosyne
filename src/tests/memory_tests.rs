@@ -1,12 +1,24 @@
-use core::fmt::Write;
-use core::hint::black_box;
-use core::ptr::{write_volatile, read_volatile};
+use alloc::{
+    alloc::{
+        Layout,
+        alloc,
+        dealloc,
+    },
+    boxed::Box,
+    vec::Vec,
+};
+use core::{
+    hint::black_box,
+    ptr::{
+        read_volatile,
+        write_volatile,
+    },
+};
 
-use alloc::vec::Vec;
-use alloc::boxed::Box;
-use alloc::alloc::{alloc, dealloc, Layout};
-
-use crate::{klogln, klog};
+use crate::{
+    klog,
+    klogln,
+};
 
 pub fn test_kmalloc() {
     unsafe {
@@ -15,7 +27,7 @@ pub fn test_kmalloc() {
         let layout = Layout::new::<u64>();
         let p1 = black_box(alloc(layout) as *mut u64);
         klog!("Allocation OK... ");
-        
+
         if p1.is_null() {
             klogln!("[FAIL] p1 is null");
             panic!("MEMORY TEST FAILED");
@@ -30,7 +42,7 @@ pub fn test_kmalloc() {
 
         let original_addr = p1 as usize;
         dealloc(black_box(p1 as *mut u8), layout);
-        
+
         let p2 = black_box(alloc(layout) as *mut u64);
         if p2 as usize != original_addr {
             klogln!("[FAIL] SLUB did not recycle pointer");
@@ -79,7 +91,7 @@ pub fn test_vmalloc() {
 pub fn test_collections() {
     klogln!("");
     klogln!("Testing rust high-level collections... ");
-    
+
     klog!("    Testing boxes... ");
     let b = Box::new(42u32);
     if *b != 42 {
@@ -87,7 +99,7 @@ pub fn test_collections() {
         panic!("MEMORY TEST FAILED");
     }
     klogln!("Box test OK");
-    
+
     klog!("    Testing vectors... ");
     let mut v = Vec::new();
     for i in 0..100 {

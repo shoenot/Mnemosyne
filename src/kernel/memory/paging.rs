@@ -1,10 +1,13 @@
+#![allow(dead_code)]
+
 use core::arch::asm;
-use crate::kernel::lock::TicketLock;
+
 use super::pmm::*;
+use crate::kernel::lock::TicketLock;
 
 type PhysAlloc = TicketLock<Allocator>;
 
-// structs 
+// structs
 
 #[repr(C, align(4096))]
 pub struct PageTable {
@@ -27,7 +30,9 @@ pub struct Pager {
 // helper functions
 
 fn next_table(entry: &PageTableEntry, phys_offset: u64) -> Option<*const PageTable> {
-    if !entry.is_present() { return None } 
+    if !entry.is_present() {
+        return None;
+    }
     Some((entry.get_addr() + phys_offset) as *const PageTable)
 }
 
@@ -36,8 +41,10 @@ fn get_or_create_next(entry: &mut PageTableEntry, phys_offset: u64, allocator: &
         let new_frame_phys = { allocator.lock().alloc(BlockSize::Normal)? as u64 };
 
         let new_table_virt = (new_frame_phys + phys_offset) as *mut PageTable;
-        unsafe { (*new_table_virt).zero(); }
-        
+        unsafe {
+            (*new_table_virt).zero();
+        }
+
         // flags: most_accessible. we change it for the last table manually.
         *entry = PageTableEntry::new(new_frame_phys, 0x7);
     }
@@ -45,22 +52,40 @@ fn get_or_create_next(entry: &mut PageTableEntry, phys_offset: u64, allocator: &
 }
 
 pub fn get_flags(
-    present: bool, writable: bool, 
-    user_access: bool, writethru: bool, 
-    no_cache: bool, accessed: bool, 
-    dirty: bool, huge: bool,
-    global: bool, no_execute: bool) -> u64 {
+    present: bool, writable: bool, user_access: bool, writethru: bool, no_cache: bool, accessed: bool, dirty: bool, huge: bool,
+    global: bool, no_execute: bool,
+) -> u64 {
     let mut flags: u64 = 0;
-    if present { flags |= 1 << 0 }
-    if writable { flags |= 1 << 1 }
-    if user_access { flags |= 1 << 2 }
-    if writethru { flags |= 1 << 3 }
-    if no_cache { flags |= 1 << 4 }
-    if accessed { flags |= 1 << 5 }
-    if dirty { flags |= 1 << 6 }
-    if huge { flags |= 1 << 7 }
-    if global { flags |= 1 << 8 }
-    if no_execute { flags |= 1 << 63 }
+    if present {
+        flags |= 1 << 0
+    }
+    if writable {
+        flags |= 1 << 1
+    }
+    if user_access {
+        flags |= 1 << 2
+    }
+    if writethru {
+        flags |= 1 << 3
+    }
+    if no_cache {
+        flags |= 1 << 4
+    }
+    if accessed {
+        flags |= 1 << 5
+    }
+    if dirty {
+        flags |= 1 << 6
+    }
+    if huge {
+        flags |= 1 << 7
+    }
+    if global {
+        flags |= 1 << 8
+    }
+    if no_execute {
+        flags |= 1 << 63
+    }
     flags
 }
 
@@ -68,7 +93,7 @@ fn get_cr3() -> u64 {
     let cr3: u64;
     unsafe {
         asm!("mov {0}, cr3", 
-            out(reg) cr3, 
+            out(reg) cr3,
             options(nostack, preserves_flags));
     };
     cr3
@@ -77,52 +102,36 @@ fn get_cr3() -> u64 {
 fn load_cr3(addr: u64) {
     unsafe {
         asm!("mov cr3, {0}",
-            in(reg) addr, 
+            in(reg) addr,
             options(nostack, preserves_flags));
     };
 }
 
-
 pub fn flush_tlb(virt: u64) {
     unsafe {
         asm!("invlpg [{0}]", 
-            in(reg) virt, 
+            in(reg) virt,
             options(nostack, preserves_flags))
     }
 }
 
-// struct methods 
+// struct methods
 
 impl PageTableEntry {
-    pub fn new(phys_addr: u64, flags: u64) -> Self {
-        Self((phys_addr & 0x000F_FFFF_FFFF_F000) | flags)
-    }
+    pub fn new(phys_addr: u64, flags: u64) -> Self { Self((phys_addr & 0x000F_FFFF_FFFF_F000) | flags) }
 
-    pub fn is_unused(&self) -> bool {
-        self.0 == 0
-    }
+    pub fn is_unused(&self) -> bool { self.0 == 0 }
 
-    pub fn set_unused(&mut self) {
-        self.0 = 0;
-    }
+    pub fn set_unused(&mut self) { self.0 = 0; }
 
-    pub fn get_addr(&self) -> u64 {
-        self.0 & 0x000F_FFFF_FFFF_F000
-    }
+    pub fn get_addr(&self) -> u64 { self.0 & 0x000F_FFFF_FFFF_F000 }
 
-    pub fn is_present(&self) -> bool {
-        self.0 & 1 == 1
-    }
+    pub fn is_present(&self) -> bool { self.0 & 1 == 1 }
 
-    pub fn is_huge(&self) -> bool {
-        self.0 & (1 << 7) != 0
-    }
+    pub fn is_huge(&self) -> bool { self.0 & (1 << 7) != 0 }
 
-    pub fn set_flags(&mut self, phys_addr: u64, flags: u64) {
-        self.0 = (phys_addr & 0x000F_FFFF_FFFF_F000) | flags;
-    }
+    pub fn set_flags(&mut self, phys_addr: u64, flags: u64) { self.0 = (phys_addr & 0x000F_FFFF_FFFF_F000) | flags; }
 }
-
 
 impl PageTable {
     pub fn zero(&mut self) {
@@ -139,23 +148,29 @@ impl PageTable {
             let l2_table = next_table(&(*l3_table).entries[l3 as usize], physical_offset)?;
             let l2_entry = &(*l2_table).entries[l2 as usize];
 
-            if !l2_entry.is_present() { return None };
+            if !l2_entry.is_present() {
+                return None;
+            };
 
-            if l2_entry.is_huge() { 
+            if l2_entry.is_huge() {
                 return Some(l2_entry.get_addr() + addr.get_huge_offset());
             }
 
             let l1_table = next_table(l2_entry, physical_offset)?;
             let final_entry = &(*l1_table).entries[l1 as usize];
-            if !final_entry.is_present() { return None; }
+            if !final_entry.is_present() {
+                return None;
+            }
 
             Some(final_entry.get_addr() + offset as u64)
         }
     }
 
-    pub unsafe fn map_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, allocator: &'static PhysAlloc, phys_offset: u64, size: BlockSize) -> Option<()> {
+    pub unsafe fn map_page(
+        &mut self, virt: VirtAddress, phys: u64, flags: u64, allocator: &'static PhysAlloc, phys_offset: u64, size: BlockSize,
+    ) -> Option<()> {
         let (l4, l3, l2, l1, _) = virt.get_idxs();
-    
+
         unsafe {
             let l3_table = get_or_create_next(&mut self.entries[l4 as usize], phys_offset, allocator)?;
             let l2_table = get_or_create_next(&mut (*l3_table).entries[l3 as usize], phys_offset, allocator)?;
@@ -209,7 +224,7 @@ impl PageTable {
             };
 
             if size == BlockSize::Huge {
-                let entry  = &mut (*l2_table).entries[l2 as usize];
+                let entry = &mut (*l2_table).entries[l2 as usize];
                 let huge_flags = new_flags | (1 << 7);
                 if entry.is_present() {
                     let phys_addr = entry.get_addr();
@@ -220,8 +235,8 @@ impl PageTable {
                     Some(t) => t as *mut PageTable,
                     None => return,
                 };
-            
-                let entry  = &mut (*l1_table).entries[l1 as usize];
+
+                let entry = &mut (*l1_table).entries[l1 as usize];
                 if entry.is_present() {
                     let phys_addr = entry.get_addr();
                     entry.set_flags(phys_addr, new_flags);
@@ -254,19 +269,13 @@ impl VirtAddress {
         (l4, l3, l2, l1, offset)
     }
 
-    pub fn get_huge_offset(&self) -> u64 {
-        self.0 & 0x1F_FFFF
-    }
+    pub fn get_huge_offset(&self) -> u64 { self.0 & 0x1F_FFFF }
 
-    pub fn get_offset(&self) -> u64 {
-        self.0 & 0xFFF
-    }
+    pub fn get_offset(&self) -> u64 { self.0 & 0xFFF }
 }
 
 impl Pager {
-    pub const fn new(allocator: &'static PhysAlloc) -> Self {
-        Self { active_l4_addr: 0, allocator }
-    }
+    pub const fn new(allocator: &'static PhysAlloc) -> Self { Self { active_l4_addr: 0, allocator } }
 
     pub fn init(&mut self) -> Option<()> {
         let pml4_table_frame = { self.allocator.lock().alloc(BlockSize::Normal)? as u64 };
@@ -282,12 +291,12 @@ impl Pager {
         }
 
         load_cr3(pml4_table_frame);
-        
+
         self.active_l4_addr = pml4_table_frame;
         Some(())
     }
 
-    pub fn map_page(&mut self, virt:VirtAddress, phys: u64, flags: u64, phys_offset: u64, size: BlockSize) -> Option<()> {
+    pub fn map_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, phys_offset: u64, size: BlockSize) -> Option<()> {
         if size == BlockSize::Normal {
             assert!(phys & 0xFFF == 0, "Phys address not 4k aligned");
             assert!(virt.get_offset() == 0, "Virt address not 4k aligned");
@@ -342,4 +351,3 @@ impl Pager {
         Some(())
     }
 }
-

@@ -1,7 +1,12 @@
-use core::ptr::{read_volatile, write_volatile};
-use crate::HHDMOFFSET;
-use crate::kernel::time::ClockSource;
-use crate::klogln;
+use core::ptr::{
+    read_volatile,
+    write_volatile,
+};
+
+use crate::{
+    HHDMOFFSET,
+    kernel::time::ClockSource,
+};
 
 const HPET_GEN_CAP_OFFSET: usize = 0x0;
 const HPET_GEN_CONF_OFFSET: usize = 0x10;
@@ -52,15 +57,9 @@ impl HPET {
 }
 
 impl ClockSource for HPET {
-    fn name(&self) -> &'static str {
-        "HPET"
-    }
+    fn name(&self) -> &'static str { "HPET" }
 
-    fn read_counter(&self) -> usize {
-        self.read_reg(HPET_MAIN_COUNTER_OFFSET) as usize
-    }
+    fn read_counter(&self) -> usize { self.read_reg(HPET_MAIN_COUNTER_OFFSET) as usize }
 
-    fn frequency(&self) -> usize {
-        self.frequency
-    }
+    fn frequency(&self) -> usize { self.frequency }
 }

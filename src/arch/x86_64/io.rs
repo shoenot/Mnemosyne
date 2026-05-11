@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use core::arch::asm;
 
 // BYTE
@@ -16,7 +18,7 @@ pub unsafe fn inb(port: u16) -> u8 {
              in("dx") port,
              out("al") value)
     }
-    value 
+    value
 }
 
 // LONG
@@ -35,5 +37,5 @@ pub unsafe fn inl(port: u16) -> u32 {
              in("dx") port,
              out("eax") value)
     }
-    value 
+    value
 }

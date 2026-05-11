@@ -1,12 +1,31 @@
-use core::alloc::{Layout, GlobalAlloc};
-use core::ptr::null_mut;
-use crate::kernel::lock::TicketLock;
-use crate::BlockSize;
-use crate::ALLOCATOR;
-use crate::GLOBAL_VMM;
-use crate::HHDMOFFSET;
-use crate::kernel::memory::pmm::{NORMAL_PAGE_SIZE, HUGE_PAGE_SIZE};
-use crate::kernel::memory::vmm::{VM_FLAG_GLOBAL, VM_FLAG_HUGE, VM_FLAG_WRITE};
+use core::{
+    alloc::{
+        GlobalAlloc,
+        Layout,
+    },
+    ptr::null_mut,
+};
+
+use crate::{
+    ALLOCATOR,
+    BlockSize,
+    GLOBAL_VMM,
+    HHDMOFFSET,
+    kernel::{
+        lock::TicketLock,
+        memory::{
+            pmm::{
+                HUGE_PAGE_SIZE,
+                NORMAL_PAGE_SIZE,
+            },
+            vmm::{
+                VM_FLAG_GLOBAL,
+                VM_FLAG_HUGE,
+                VM_FLAG_WRITE,
+            },
+        },
+    },
+};
 
 const CACHE_SIZES: [usize; 10] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];
 
@@ -18,19 +37,17 @@ struct FreeBlock {
 }
 
 pub struct KernelAllocator {
-    caches: [TicketLock<KmemCache>; 10]
+    caches: [TicketLock<KmemCache>; 10],
 }
 
-fn calc_size(layout: &Layout) -> usize {
-    layout.size().max(layout.align()).next_power_of_two()
-}
+fn calc_size(layout: &Layout) -> usize { layout.size().max(layout.align()).next_power_of_two() }
 
 impl KernelAllocator {
     pub const fn new() -> Self {
-        let mut caches = [const { TicketLock::new(KmemCache{ object_size: 0, freelist_head: None}) }; 10];
+        let mut caches = [const { TicketLock::new(KmemCache { object_size: 0, freelist_head: None }) }; 10];
         let mut i = 0;
         while i < 10 {
-            caches[i] = TicketLock::new(KmemCache{ object_size: CACHE_SIZES[i], freelist_head: None });
+            caches[i] = TicketLock::new(KmemCache { object_size: CACHE_SIZES[i], freelist_head: None });
             i += 1;
         }
         KernelAllocator { caches }
@@ -66,9 +83,11 @@ unsafe impl GlobalAlloc for KernelAllocator {
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        if ptr.is_null() { return; }
+        if ptr.is_null() {
+            return;
+        }
         let size = calc_size(&layout);
-        
+
         if size <= NORMAL_PAGE_SIZE {
             // kfree
             let idx = size.ilog2().saturating_sub(3) as usize;
@@ -84,7 +103,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
 
 pub struct KmemCache {
     object_size: usize,
-    freelist_head: Option<*mut FreeBlock>
+    freelist_head: Option<*mut FreeBlock>,
 }
 
 impl KmemCache {
@@ -98,7 +117,7 @@ impl KmemCache {
                 return block as *mut u8;
             }
         }
-        
+
         // separated slow path logic into separate function for clarity
         unsafe { self.refill() }
     }
@@ -107,19 +126,16 @@ impl KmemCache {
         let mut pmm_lock = ALLOCATOR.lock();
         let phys_addr = pmm_lock.alloc(BlockSize::Normal).expect("Kernel out of memory");
         drop(pmm_lock);
-        
+
         let virt_page_start = phys_addr + *HHDMOFFSET;
         let num_objects = NORMAL_PAGE_SIZE / self.object_size;
 
         for i in 1..num_objects {
             let current_ptr = (virt_page_start + (self.object_size * i)) as *mut FreeBlock;
-            let next_ptr = if i == num_objects - 1 {
-                null_mut()
-            } else {
-                (virt_page_start + ((i + 1) * self.object_size)) as *mut FreeBlock
-            };
+            let next_ptr =
+                if i == num_objects - 1 { null_mut() } else { (virt_page_start + ((i + 1) * self.object_size)) as *mut FreeBlock };
 
-            unsafe { 
+            unsafe {
                 (*current_ptr).next = next_ptr;
             }
         }

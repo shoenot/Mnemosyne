@@ -1,5 +1,7 @@
-use crate::kernel::acpi;
-use crate::kernel::acpi::sdt::ACPISDTHeader;
+use crate::kernel::{
+    acpi,
+    acpi::sdt::ACPISDTHeader,
+};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -21,8 +23,8 @@ pub fn get_hpet_base_addr() -> Option<usize> {
             Some(addr) => {
                 let hpet_table = &*(addr as *const HPET);
                 Some(hpet_table.address as usize)
-            },
-            None => None
+            }
+            None => None,
         };
         hpet_base_addr
     }

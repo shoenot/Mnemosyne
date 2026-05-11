@@ -1,5 +1,12 @@
-use core::ptr::{read_volatile, write_volatile};
-use crate::kernel::{acpi, memory::pmm::HHDMOFFSET};
+use core::ptr::{
+    read_volatile,
+    write_volatile,
+};
+
+use crate::kernel::{
+    acpi,
+    memory::pmm::HHDMOFFSET,
+};
 
 const IOREGSEL_OFFSET: usize = 0x00;
 const IOWIN_OFFSET: usize = 0x10;
@@ -41,12 +48,12 @@ impl IOApic {
             read_volatile(win_ptr)
         }
     }
-    
+
     // route hw interrupt to a local apic mapped to a specific interrupt vector
     pub fn mask_all(&self) {
         // Read the Version Register at offset 0x01
         let version_reg = unsafe { self.read_reg(0x01) };
-        
+
         // Extract the "Max Redirection Entry" field (bits 16-23)
         let max_entry = ((version_reg >> 16) & 0xFF) as u8;
 
@@ -64,7 +71,9 @@ impl IOApic {
     }
 
     pub fn set_entry(&self, gsi: u32, vector: u8, lapic_id: u32, masked: bool) {
-        if gsi < self.gsi_base as u32 { return; }
+        if gsi < self.gsi_base as u32 {
+            return;
+        }
 
         let rel_gsi = (gsi - self.gsi_base as u32) as u8;
         let low_idx = IOREDTBL_BASE + (rel_gsi * 2);

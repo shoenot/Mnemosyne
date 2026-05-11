@@ -1,4 +1,5 @@
 use core::arch::asm;
+
 use lazy_static::lazy_static;
 
 pub const KERNEL_CS: u64 = 0x08;
@@ -17,18 +18,12 @@ struct GDTEntry {
 #[repr(C, packed)]
 struct GDTPointer {
     limit: u16,
-    base: u64, }
+    base: u64,
+}
 
 impl GDTEntry {
     const fn new(access: u8, flags: u8) -> Self {
-        GDTEntry {
-            limit_low: 0xFFFF,
-            base_low: 0,
-            base_middle: 0,
-            access,
-            granularity: flags | 0x0F,
-            base_high: 0,
-        }
+        GDTEntry { limit_low: 0xFFFF, base_low: 0, base_middle: 0, access, granularity: flags | 0x0F, base_high: 0 }
     }
 }
 
@@ -43,6 +38,7 @@ struct TaskStateSegment {
     iomap_base: u16,
 }
 
+#[allow(dead_code)]
 #[repr(C, packed)]
 struct TSSDescriptor {
     low: GDTEntry,
@@ -52,7 +48,7 @@ struct TSSDescriptor {
 
 lazy_static!(
     static ref TSS_INSTANCE: TaskStateSegment = {
-        let mut tss = TaskStateSegment {
+        let tss = TaskStateSegment {
             reserved_1: 0,
             rsp: [0; 3],
             reserved_2: 0,
@@ -87,14 +83,14 @@ lazy_static!(
             granularity: 0,
             base_high: (tss_base >> 24) as u8,
         };
-        
-        gdt[6] = GDTEntry { 
+
+        gdt[6] = GDTEntry {
             limit_low: tss_base_high as u16,
-            base_low: (tss_base_high >> 16) as u16, 
-            base_middle: 0, 
-            access: 0, 
-            granularity: 0, 
-            base_high: 0, 
+            base_low: (tss_base_high >> 16) as u16,
+            base_middle: 0,
+            access: 0,
+            granularity: 0,
+            base_high: 0,
         };
         gdt
     };
@@ -102,18 +98,15 @@ lazy_static!(
 
 pub fn init_gdt() {
     let gdt_ptr = &*GDT as *const [GDTEntry; 7];
-    let ptr = GDTPointer {
-        limit: (core::mem::size_of::<[GDTEntry; 7]>() - 1) as u16,
-        base: gdt_ptr as u64,
-    };
+    let ptr = GDTPointer { limit: (core::mem::size_of::<[GDTEntry; 7]>() - 1) as u16, base: gdt_ptr as u64 };
 
     unsafe {
         asm!(
             "lgdt [{ptr}]",
             "push 0x08",
-            "lea {tmp}, [rip + 2f]", 
+            "lea {tmp}, [rip + 2f]",
             "push {tmp}",
-            "retfq",     
+            "retfq",
             "2:",
             "mov {tmp:x}, 16",
             "mov ds, {tmp:x}",

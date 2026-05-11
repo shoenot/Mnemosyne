@@ -1,7 +1,10 @@
-pub mod switch;
 pub mod schedule;
+pub mod switch;
 
-use core::{alloc::LayoutError, fmt};
+use core::{
+    alloc::LayoutError,
+    fmt,
+};
 
 #[derive(Debug)]
 pub enum ThreadError {
@@ -17,7 +20,5 @@ impl fmt::Display for ThreadError {
 }
 
 impl From<LayoutError> for ThreadError {
-    fn from(value: LayoutError) -> Self {
-        ThreadError::SpawnAllocationError(value)
-    }
+    fn from(value: LayoutError) -> Self { ThreadError::SpawnAllocationError(value) }
 }

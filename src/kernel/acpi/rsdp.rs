@@ -1,6 +1,9 @@
 use core::slice::from_raw_parts;
-use crate::boot::RSDP_REQUEST;
-use crate::HHDMOFFSET;
+
+use crate::{
+    HHDMOFFSET,
+    boot::RSDP_REQUEST,
+};
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]
@@ -19,7 +22,7 @@ pub struct RSDP_v2_Descriptor {
     length: u32,
     xsdt_address: u64,
     extended_checksum: u8,
-    reserved: [u8; 3]
+    reserved: [u8; 3],
 }
 
 #[derive(Copy, Clone)]
@@ -35,10 +38,8 @@ pub enum AcpiRoot {
 
 impl Rsdp {
     pub fn get() -> Rsdp {
-        let resp_addr = RSDP_REQUEST.response()
-            .expect("COULD NOT GET RSDP ADDRESS FROM LIMINE")
-            .address;
-        
+        let resp_addr = RSDP_REQUEST.response().expect("COULD NOT GET RSDP ADDRESS FROM LIMINE").address;
+
         let rsdp_ptr = resp_addr as *const RSDP_Descriptor;
 
         unsafe {
@@ -52,13 +53,8 @@ impl Rsdp {
     }
 
     fn validate(self) -> Option<()> {
-        let checksum = |ptr: *const u8, len: usize| -> u8 {
-            unsafe {
-                from_raw_parts(ptr, len)
-                    .iter()
-                    .fold(0u8, |acc, &x| acc.wrapping_add(x))
-            }
-        };
+        let checksum =
+            |ptr: *const u8, len: usize| -> u8 { unsafe { from_raw_parts(ptr, len).iter().fold(0u8, |acc, &x| acc.wrapping_add(x)) } };
 
         match self {
             Rsdp::V1(desc) => {
@@ -67,18 +63,14 @@ impl Rsdp {
                 } else {
                     None
                 }
-            },
+            }
             Rsdp::V2(desc) => {
                 let ptr = &desc as *const _ as *const u8;
-                
+
                 let v1_sum = checksum(ptr, 20);
                 let v2_sum = checksum(ptr, 36);
-                
-                if v1_sum == 0 && v2_sum == 0 { 
-                    Some(()) 
-                } else { 
-                    None 
-                }
+
+                if v1_sum == 0 && v2_sum == 0 { Some(()) } else { None }
             }
         }
     }

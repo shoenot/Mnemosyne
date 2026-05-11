@@ -1,18 +1,20 @@
-pub mod io;
 pub mod apic;
-pub mod interrupts;
-pub mod timer;
 pub mod cpuid;
+pub mod interrupts;
+pub mod io;
+pub mod timer;
 
-use crate::{
-    TicketLock, 
-    PAGER,
-    klog, 
-    klogln
+use apic::{
+    ioapic::*,
+    lapic::*,
 };
 
-use apic::lapic::*;
-use apic::ioapic::*;
+use crate::{
+    PAGER,
+    TicketLock,
+    klog,
+    klogln,
+};
 
 pub static LOCAL_APIC: TicketLock<LocalAPIC> = TicketLock::new(LocalAPIC { base_addr: 0 });
 pub static IO_APIC: TicketLock<IOApic> = TicketLock::new(IOApic { base_addr: 0, gsi_base: 0 });

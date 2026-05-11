@@ -1,15 +1,20 @@
 use core::ops::Deref;
+
 use lazy_static::lazy_static;
 use limine::memmap::*;
+
 use crate::{
-    HHDM_REQUEST, MEMMAP_REQUEST,
+    HHDM_REQUEST,
+    MEMMAP_REQUEST,
 };
 
-lazy_static!(
+lazy_static! {
     pub static ref HHDMOFFSET: usize = if let Some(hhdmresp) = HHDM_REQUEST.response() {
-        hhdmresp.deref().offset as usize 
-    } else { panic!("COULD NOT GET HHDM OFFSET FROM LIMINE") };
-);
+        hhdmresp.deref().offset as usize
+    } else {
+        panic!("COULD NOT GET HHDM OFFSET FROM LIMINE")
+    };
+}
 
 pub static HUGE_PAGE_SIZE: usize = 0x20_0000;
 pub static NORMAL_PAGE_SIZE: usize = 0x1000;
@@ -58,7 +63,7 @@ fn init_pages(mut start: usize, mut limit: usize, head: &mut usize, size: BlockS
     let spacing = if size == BlockSize::Normal { NORMAL_PAGE_SIZE } else { HUGE_PAGE_SIZE };
     while limit > 0 {
         let block = get_block(start);
-        *block = FreeBlock { next: *head, size: size };
+        *block = FreeBlock { next: *head, size };
         *head = start;
         start += spacing;
         limit -= 1;
@@ -68,19 +73,19 @@ fn init_pages(mut start: usize, mut limit: usize, head: &mut usize, size: BlockS
 }
 
 impl Allocator {
-    pub const fn new() -> Self {
-        Allocator { normal_head: 0, huge_head: 0, highest_addr: 0, free_4k: 0, free_2m: 0 }
-    }
+    pub const fn new() -> Self { Allocator { normal_head: 0, huge_head: 0, highest_addr: 0, free_4k: 0, free_2m: 0 } }
 
     pub fn init(&mut self) {
         let mem_map = if let Some(memmap_response) = MEMMAP_REQUEST.response() {
             memmap_response.deref().entries()
-        } else { panic!("COULD NOT GET MEMMAP FROM LIMINE") };
+        } else {
+            panic!("COULD NOT GET MEMMAP FROM LIMINE")
+        };
 
         for entry in mem_map {
             let top = entry.base + entry.length;
-            if top as usize > self.highest_addr { 
-                self.highest_addr = top as usize; 
+            if top as usize > self.highest_addr {
+                self.highest_addr = top as usize;
             }
         }
 
@@ -90,7 +95,7 @@ impl Allocator {
             if entry.type_ == MEMMAP_USABLE {
                 let (start_4k, end_4k) = get_start_end(entry.base as usize, entry.length as usize);
                 let (start_2m, end_2m) = get_start_end_huge(entry.base as usize, entry.length as usize);
-                
+
                 // sometimes chunks can't fit a full 2 megs
                 if start_2m < end_2m {
                     let fgap_4k_pages = (start_2m - start_4k) / NORMAL_PAGE_SIZE;
@@ -104,11 +109,10 @@ impl Allocator {
                 } else {
                     let pages = (end_4k - start_4k) / NORMAL_PAGE_SIZE;
                     self.free_4k += init_pages(start_4k, pages, &mut self.normal_head, BlockSize::Normal);
-                } 
+                }
             }
         }
     }
-
 
     pub fn alloc(&mut self, size: BlockSize) -> Option<usize> {
         match size {
@@ -120,35 +124,45 @@ impl Allocator {
                 } else {
                     None
                 }
-            },
+            }
             BlockSize::Huge => {
                 if self.free_2m > 0 {
                     self.pop(BlockSize::Huge)
                 } else {
                     None
                 }
-            },
+            }
         }
     }
 
-    pub fn free(&mut self, addr: usize, size: BlockSize) {
-        self.push(size, addr);
-    }
+    pub fn free(&mut self, addr: usize, size: BlockSize) { self.push(size, addr); }
 
     fn pop(&mut self, size: BlockSize) -> Option<usize> {
         match size {
             BlockSize::Normal => {
-                if self.normal_head == 0 { return None; };
+                if self.normal_head == 0 {
+                    return None;
+                };
                 let ret = self.normal_head;
-                let next_addr = unsafe { let blk = (ret + *HHDMOFFSET) as *const FreeBlock; &*blk }.next;
+                let next_addr = unsafe {
+                    let blk = (ret + *HHDMOFFSET) as *const FreeBlock;
+                    &*blk
+                }
+                .next;
                 self.normal_head = next_addr;
                 self.free_4k -= 1;
                 Some(ret)
-            },
+            }
             BlockSize::Huge => {
-                if self.huge_head == 0 { return None; };
+                if self.huge_head == 0 {
+                    return None;
+                };
                 let ret = self.huge_head;
-                let next_addr = unsafe { let blk = (ret + *HHDMOFFSET) as *const FreeBlock; &*blk }.next;
+                let next_addr = unsafe {
+                    let blk = (ret + *HHDMOFFSET) as *const FreeBlock;
+                    &*blk
+                }
+                .next;
                 self.huge_head = next_addr;
                 self.free_2m -= 1;
                 Some(ret)
@@ -160,14 +174,20 @@ impl Allocator {
         match size {
             BlockSize::Normal => {
                 let next = self.normal_head;
-                let new_block = unsafe { let blk = (addr + *HHDMOFFSET) as *mut FreeBlock; &mut *blk };
+                let new_block = unsafe {
+                    let blk = (addr + *HHDMOFFSET) as *mut FreeBlock;
+                    &mut *blk
+                };
                 *new_block = FreeBlock { next, size };
                 self.normal_head = addr;
                 self.free_4k += 1;
-            },
+            }
             BlockSize::Huge => {
                 let next = self.huge_head;
-                let new_block = unsafe { let blk = (addr + *HHDMOFFSET) as *mut FreeBlock; &mut *blk };
+                let new_block = unsafe {
+                    let blk = (addr + *HHDMOFFSET) as *mut FreeBlock;
+                    &mut *blk
+                };
                 *new_block = FreeBlock { next, size };
                 self.huge_head = addr;
                 self.free_2m += 1;
@@ -176,11 +196,16 @@ impl Allocator {
     }
 
     fn split_huge(&mut self) -> Option<usize> {
-        if self.huge_head == 0 { return None; };
+        if self.huge_head == 0 {
+            return None;
+        };
         let block = self.pop(BlockSize::Huge)?;
         for i in 0..512 {
             let base = block + (i << 12);
-            let new_block = unsafe { let blk = (base + *HHDMOFFSET) as *mut FreeBlock; &mut *blk };
+            let new_block = unsafe {
+                let blk = (base + *HHDMOFFSET) as *mut FreeBlock;
+                &mut *blk
+            };
             *new_block = FreeBlock { next: self.normal_head, size: BlockSize::Normal };
             self.normal_head = base;
         }

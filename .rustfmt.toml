@@ -7,8 +7,6 @@ comment_width = 140
 use_small_heuristics = "Max"
 
 binop_separator = "Back"
-brace_stype = "PreferSameLine"
-fn_args_layout = "Compressed"
 fn_params_layout = "Compressed"
 fn_single_line = true 
 imports_layout = "Vertical"
