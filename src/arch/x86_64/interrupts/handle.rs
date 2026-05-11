@@ -1,4 +1,4 @@
-use core::arch::asm;
+use core::{arch::asm, ptr::null_mut};
 
 use crate::{
     GLOBAL_VMM,
@@ -7,7 +7,7 @@ use crate::{
         apic::lapic::send_apic_eoi,
         interrupts::idt::InterruptStackFrame,
     },
-    kernel::time::arm_sleep_ns,
+    kernel::{thread::tcb::ThreadState, time::{arm_sleep_ns, get_time}},
     klogln,
 };
 
@@ -48,7 +48,34 @@ pub fn unexpected_interrupt_handler(frame: &InterruptStackFrame) {
 }
 
 pub fn lapic_interrupt_handler() {
+    let current_time = get_time();
     send_apic_eoi();
-    arm_sleep_ns(1_000_000_000);
-    SCHEDULER.lock().schedule();
+
+    let mut sched = SCHEDULER.lock();
+    unsafe {
+        while !sched.sleep_queue_head.is_null() {
+            let sleeping_thread = sched.sleep_queue_head;
+
+            if (*sleeping_thread).wake_time > current_time {
+                break;
+            }
+
+            sched.sleep_queue_head = (*sleeping_thread).next;
+            (*sleeping_thread).next = null_mut();
+
+            (*sleeping_thread).state = ThreadState::Ready;
+            sched.push(sleeping_thread);
+        }
+    }
+    if !sched.sleep_queue_head.is_null() {
+        let next_wake = unsafe {
+            (*sched.sleep_queue_head).wake_time 
+        };
+        let delta_ns = next_wake.saturating_sub(get_time());
+        arm_sleep_ns(delta_ns);
+    } else {
+        arm_sleep_ns(1_000_000_000);
+    }
+    sched.schedule();
+    drop(sched);
 }

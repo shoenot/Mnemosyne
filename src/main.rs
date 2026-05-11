@@ -4,12 +4,12 @@
 mod arch;
 mod boot;
 mod drivers;
+mod helpers;
 mod kernel;
 mod panic;
 mod tests;
 
 extern crate alloc;
-use core::arch::asm;
 
 pub use arch::x86_64::{
     IO_APIC,
@@ -18,10 +18,14 @@ pub use arch::x86_64::{
 use arch::x86_64::{
     init_apic,
     init_interrupts,
+    cpu::fpu::{
+        init_default_fpu_cxt,
+        init_cr4,
+    },
 };
 pub use boot::*;
 use kernel::{
-    lock::TicketLock,
+    sync::TicketLock,
     memory::{
         heap::KernelAllocator,
         paging::*,
@@ -35,7 +39,7 @@ use kernel::{
 use panic::hcf;
 use tests::memory_tests::*;
 
-use crate::arch::x86_64::io::{inb, outb};
+use crate::kernel::sync::Mutex;
 
 #[global_allocator]
 pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
@@ -43,6 +47,8 @@ pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 static ALLOCATOR: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
 static GLOBAL_VMM: TicketLock<VirtMemManager> = TicketLock::new(VirtMemManager::new(&PAGER, &ALLOCATOR));
+
+static SHARED_COUNTER: Mutex<usize> = Mutex::new(0);
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {
@@ -68,33 +74,26 @@ pub extern "C" fn kmain() -> ! {
 
     klogln!("SWITCHED CR3. PAGING HANDOVER COMPLETE.");
 
-    klogln!("RUNNING MEMORY TESTS");
+    klog!("RUNNING MEMORY TESTS... ");
 
-    test_kmalloc();
-    test_vmalloc();
-    test_collections();
+    test_kmalloc(false);
+    test_vmalloc(false);
+    test_collections(false);
 
     klogln!("TESTS COMPLETE!");
 
     init_apic();
 
-    unsafe {
-        let mut cr4: usize;
-        asm!("mov {}, cr4",
-            out(reg) cr4);
-        cr4 |= 1 << 9; // set bit 9 
-        asm!("mov cr4, {}",
-            in(reg) cr4);
-    }
+    unsafe { init_cr4() };
 
     time::init();
-    klogln!("Using timer: {:#?} with frequency: {:?}", *TIME_SOURCE.lock(), TIME_SRC_FQ);
-    klogln!("");
 
-    init_clean_fpu();
+    init_default_fpu_cxt();
 
     let tt1 = test_thread_1 as *const ();
     let tt2 = test_thread_2 as *const ();
+
+    SCHEDULER.lock().init();
 
     SCHEDULER.lock().spawn(tt1 as usize).unwrap();
     SCHEDULER.lock().spawn(tt2 as usize).unwrap();
@@ -108,12 +107,42 @@ pub extern "C" fn kmain() -> ! {
 
 fn test_thread_1() -> ! {
     loop {
-        klogln!("A");
+        klogln!("T1: attempting to lock...");
+
+        {
+            let mut guard = SHARED_COUNTER.lock();
+            klogln!("T1: lock acquired! counter is: {}", *guard);
+
+            *guard += 1;
+
+            sleep(1_000_000_000);
+
+            klogln!("T1: Releasing lock...");
+        }
+
+        SCHEDULER.lock().schedule();
+
+        sleep(1_000_000_000);
     }
 }
 
 fn test_thread_2() -> ! {
     loop {
-        klogln!("B");
+        klogln!("T2: attempting to lock...");
+
+        {
+            let mut guard = SHARED_COUNTER.lock();
+            klogln!("T2: lock acquired! counter is: {}", *guard);
+
+            *guard += 1;
+
+            sleep(1_000_000_000);
+
+            klogln!("T2: Releasing lock...");
+        }
+
+        SCHEDULER.lock().schedule();
+
+        sleep(1_000_000_000);
     }
 }

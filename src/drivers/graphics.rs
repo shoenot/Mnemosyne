@@ -30,7 +30,7 @@ pub fn putchar(c: char, x: u32, y: u32, font: &Psf, fb: &Framebuffer) {
         };
     });
 }
- 
+
 pub fn writeline(s: &str, y: u32, offset: u32, font: &Psf, fb: &Framebuffer) {
     let mut i = offset;
     for c in s.chars() {

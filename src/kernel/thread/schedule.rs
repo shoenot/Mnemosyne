@@ -16,47 +16,42 @@ use core::{
     },
 };
 
-use super::{
-    ThreadError,
-    switch::*,
-};
 use crate::{
-    arch::x86_64::interrupts::gdt::{
-        KERNEL_CS,
-        KERNEL_SS,
+    arch::x86_64::{
+        cpu::fpu::*,
+        interrupts::gdt::{
+            KERNEL_CS,
+            KERNEL_SS,
+        },
+        task::context::*,
     },
-    kernel::lock::TicketLock,
+    kernel::{
+        sync::TicketLock,
+        thread::{
+            ThreadError,
+            ThreadControlBlock,
+            ThreadState,
+            switch_threads_avx,
+            switch_threads_legacy,
+            idle::*,
+        },
+    },
 };
 
 pub static SCHEDULER: TicketLock<SchedulerState> = TicketLock::new(SchedulerState::new());
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
 
-pub static DEFAULT_EXTENDED_CONTEXT: TicketLock<Option<ExtendedContext>> = TicketLock::new(None);
+pub const RFLAGS_IF: u64 = 0x202; // bit 9 is interrupt enable and bit 1 is always 1 (reserved)
 
-const RFLAGS_IF: u64 = 0x202; // bit 9 is interrupt enable and bit 1 is always 1 (reserved)
-
-#[derive(PartialEq)]
-pub enum ThreadState {
-    Ready,
-    Running,
-    Blocked,
-    Terminated,
-}
-
-pub enum ThreadPriority {
-    Idle,
-    Low,
-    Medium,
-    High,
-    Maximum,
-}
+pub const DEFAULT_QUANTUM: usize = 10_000_000;
 
 pub struct SchedulerState {
-    ready_queue_head: *mut ThreadControlBlock,
-    ready_queue_tail: *mut ThreadControlBlock,
-    current_thread: *mut ThreadControlBlock,
-    idle_thread: *mut ThreadControlBlock,
+    pub ready_queue_head: *mut ThreadControlBlock,
+    pub ready_queue_tail: *mut ThreadControlBlock,
+    pub current_thread: *mut ThreadControlBlock,
+    pub idle_thread: *mut ThreadControlBlock,
+    pub sleep_queue_head: *mut ThreadControlBlock,
 }
 
 unsafe impl Send for SchedulerState {}
@@ -64,18 +59,19 @@ unsafe impl Sync for SchedulerState {}
 
 pub fn get_new_tid() -> usize { GLOBAL_TID.fetch_add(1, Ordering::Relaxed) }
 
-pub fn init_clean_fpu() {
-    let mut clean_state = ExtendedContext::new();
-    unsafe {
-        clean_state.init_default_state();
-    }
-    let mut dec = DEFAULT_EXTENDED_CONTEXT.lock();
-    *dec = Some(clean_state);
-}
-
 impl SchedulerState {
     pub const fn new() -> Self {
-        SchedulerState { ready_queue_head: null_mut(), ready_queue_tail: null_mut(), current_thread: null_mut(), idle_thread: null_mut() }
+        SchedulerState { 
+            ready_queue_head: null_mut(), 
+            ready_queue_tail: null_mut(), 
+            current_thread: null_mut(), 
+            idle_thread: null_mut(),
+            sleep_queue_head: null_mut(),
+        }
+    }
+
+    pub fn init(&mut self) {
+        self.idle_thread = init_idle_thread();
     }
 
     pub fn push(&mut self, thread: *mut ThreadControlBlock) {
@@ -109,21 +105,25 @@ impl SchedulerState {
 
     pub fn spawn(&mut self, entry_point: usize) -> Result<(), ThreadError> {
         let stack_size = 4096 * 4;
+        let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
         // alloc memory for structs
         let tcb_layout = Layout::new::<ThreadControlBlock>();
         let stack_layout = Layout::from_size_align(stack_size, 4096)?;
-        let fpu_layout = Layout::from_size_align(size_of::<ExtendedContext>(), 16)?;
 
         let tcb_ptr = unsafe { alloc(tcb_layout) as *mut ThreadControlBlock };
         let stack_base = unsafe { alloc(stack_layout) as usize };
-        let fpu_ptr = unsafe { alloc(fpu_layout) as *mut ExtendedContext };
 
         // init extended context state
-        {
-            let dec = DEFAULT_EXTENDED_CONTEXT.lock();
-            let default_fpu_ref = dec.as_ref().expect("Clean FPU not initialized");
-            unsafe { copy_nonoverlapping(default_fpu_ref as *const ExtendedContext, fpu_ptr, 1) };
-        }
+        let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
+            gen_avx_dummy_fpu()?
+        } else {
+            let fpu_layout = Layout::from_size_align(fpu_size, 16)?;
+            let fpu_ptr = unsafe { alloc(fpu_layout) as *mut u8 };
+            let def = CLEAN_LEGACY_FPU_CXT.lock();
+            let default_fpu_ref = def.as_ref().expect("Clean FPU not initialized");
+            unsafe { copy_nonoverlapping(default_fpu_ref as *const LegacyXtCxt, fpu_ptr as *mut LegacyXtCxt, 1) };
+            fpu_ptr as *mut u8
+        };
 
         let stack_top = stack_base + stack_size;
         let context_addr = stack_top - size_of::<ThreadContext>();
@@ -132,7 +132,7 @@ impl SchedulerState {
 
         context.zero_gp();
         context.instruction_pointer = entry_point as u64;
-        context.stack_pointer = stack_top as u64;
+        context.stack_pointer = (stack_top - 8) as u64;
         context.code_segment = KERNEL_CS;
         context.stack_segment = KERNEL_SS;
         context.cpu_flags = RFLAGS_IF;
@@ -158,17 +158,24 @@ impl SchedulerState {
     }
 
     pub fn schedule(&mut self) {
-        let next_thread = self.pop();
+        let mut next_thread = self.pop();
         if next_thread.is_null() {
-            return;
+            next_thread = self.idle_thread;
         }
 
         let prev_thread = self.current_thread;
+
+        if prev_thread == self.idle_thread && next_thread == self.idle_thread {
+            return;
+        }
+
         if !prev_thread.is_null() {
             unsafe {
                 if (*prev_thread).state == ThreadState::Running {
                     (*prev_thread).state = ThreadState::Ready;
-                    self.push(prev_thread);
+                    if prev_thread != self.idle_thread {
+                        self.push(prev_thread);
+                    }
                 }
             }
         }
@@ -180,25 +187,78 @@ impl SchedulerState {
 
         if !prev_thread.is_null() {
             unsafe {
-                switch_threads(
-                    &mut (*prev_thread).stack_ptr as *mut usize,
-                    (*next_thread).stack_ptr,
-                    (*prev_thread).extended_context,
-                    (*next_thread).extended_context,
-                );
+                if USE_XSAVE.load(Ordering::Relaxed) {
+                    switch_threads_avx(
+                        &mut (*prev_thread).stack_ptr as *mut usize,
+                        (*next_thread).stack_ptr,
+                        (*prev_thread).extended_context,
+                        (*next_thread).extended_context,
+                    );
+                } else {
+                    switch_threads_legacy(
+                        &mut (*prev_thread).stack_ptr as *mut usize,
+                        (*next_thread).stack_ptr,
+                        (*prev_thread).extended_context,
+                        (*next_thread).extended_context,
+                    );
+                }
             }
         } else {
             let mut dummy_stack_ptr = 0usize;
-            let mut dummy_fpu = ExtendedContext::new();
-            unsafe {
-                switch_threads(
-                    &mut dummy_stack_ptr as *mut usize,
-                    (*next_thread).stack_ptr,
-                    &mut dummy_fpu as *mut ExtendedContext,
-                    (*next_thread).extended_context,
-                );
+            if USE_XSAVE.load(Ordering::Relaxed) {
+                let dummy_fpu_ptr = gen_avx_dummy_fpu().ok().unwrap();
+                unsafe {
+                    switch_threads_avx(
+                        &mut dummy_stack_ptr as *mut usize,
+                        (*next_thread).stack_ptr,
+                        dummy_fpu_ptr,
+                        (*next_thread).extended_context,
+                    );
+                }
+            } else {
+                let mut dummy_fpu = LegacyXtCxt::new();
+                unsafe {
+                    let dummy_fpu_ptr = &mut dummy_fpu as *mut LegacyXtCxt as *mut u8;
+                    switch_threads_legacy(
+                        &mut dummy_stack_ptr as *mut usize,
+                        (*next_thread).stack_ptr,
+                        dummy_fpu_ptr,
+                        (*next_thread).extended_context,
+                    );
+                }
             }
         }
+    }
+
+    pub fn push_sleep(&mut self, tcb: *mut ThreadControlBlock) {
+        unsafe {
+            (*tcb).next = null_mut();
+
+            if self.sleep_queue_head.is_null() || (*tcb).wake_time < (*self.sleep_queue_head).wake_time {
+                (*tcb).next = self.sleep_queue_head;
+                self.sleep_queue_head = tcb;
+                return;
+            }
+
+            let mut current = self.sleep_queue_head;
+            while!(*current).next.is_null() && (*(*current).next).wake_time <= (*tcb).wake_time {
+                current = (*current).next;
+            }
+
+            (*tcb).next = (*current).next;
+            (*current).next = tcb;
+        }
+    }
+
+    pub fn get_current_thread(&self) -> *mut ThreadControlBlock {
+        self.current_thread
+    }
+
+    pub fn unblock(&mut self, thread: *mut ThreadControlBlock) {
+        unsafe {
+            (*thread).state = ThreadState::Ready;
+        }
+        self.push(thread);
     }
 }
 

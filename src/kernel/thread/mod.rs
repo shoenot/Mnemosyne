@@ -1,10 +1,14 @@
 pub mod schedule;
-pub mod switch;
+pub mod tcb;
+pub mod idle;
+pub mod wait;
 
 use core::{
     alloc::LayoutError,
     fmt,
 };
+
+pub use tcb::*;
 
 #[derive(Debug)]
 pub enum ThreadError {

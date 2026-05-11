@@ -1,11 +1,11 @@
-use core::ptr::{
+use core::{ptr::{
     read_volatile,
     write_volatile,
-};
+}, sync::atomic::Ordering};
 
 use crate::{
     HHDMOFFSET,
-    kernel::time::ClockSource,
+    kernel::time::{ClockSource, HPET_BASE_ADDR},
 };
 
 const HPET_GEN_CAP_OFFSET: usize = 0x0;
@@ -62,4 +62,9 @@ impl ClockSource for HPET {
     fn read_counter(&self) -> usize { self.read_reg(HPET_MAIN_COUNTER_OFFSET) as usize }
 
     fn frequency(&self) -> usize { self.frequency }
+}
+
+pub fn read_hpet_direct() -> usize { 
+    let addr = HPET_BASE_ADDR.load(Ordering::Relaxed) as usize + HPET_MAIN_COUNTER_OFFSET;
+    unsafe { read_volatile(addr as *const usize) }
 }

@@ -20,7 +20,7 @@ use super::{
 };
 use crate::{
     boot::FRAMEBUFFER_REQUEST,
-    kernel::lock::TicketLock,
+    kernel::sync::TicketLock,
 };
 
 const FONT_DATA: &[u8] = include_bytes!("../../build_deps/zap-ext-light16.psf");

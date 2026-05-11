@@ -1,4 +1,7 @@
-global switch_threads 
+global switch_threads_legacy
+global switch_threads_avx
+global thread_entry_stub
+extern unlock_scheduler 
 
 section .text
 
@@ -7,7 +10,7 @@ section .text
 ; RDX = old_extended_context (*mut ExtendedContext)
 ; RCX = new_extended_context (*const ExtendedContext)
 
-switch_threads:
+switch_threads_legacy:
     ; step 1: save callee saved regs on old thread's stack
     push rbx
     push rbp
@@ -37,10 +40,40 @@ switch_threads:
     ; ret pops the RIP off the new thread's stack
     ret
 
-global thread_entry_stub
-extern unlock_scheduler 
+switch_threads_avx:
+    ; step 1: save callee saved regs on old thread's stack
+    push rbx
+    push rbp
+    push r12
+    push r13
+    push r14
+    push r15
 
-section .text 
+    ; step 2: save extended context
+    mov r8, rdx
+    mov eax, 0xFFFFFFFF
+    mov edx, 0xFFFFFFFF
+    xsave64 [r8]              ; writing into old_extended_context
+
+    ; step 3: swap stack ptrs
+    mov [rdi], rsp              ; writing into old_stack_ptr
+    mov rsp, rsi                ; read from new_stack_ptr
+    
+    ; step 4: restore extended context 
+    mov eax, 0xFFFFFFFF
+    mov edx, 0xFFFFFFFF
+    xrstor64 [rcx]             ; read from new_extended_context
+
+    ; step 5: restore callee saved regs from new thread's stack
+    pop r15
+    pop r14
+    pop r13
+    pop r12
+    pop rbp
+    pop rbx
+    
+    ; ret pops the RIP off the new thread's stack
+    ret
 
 thread_entry_stub:
     call unlock_scheduler
@@ -64,3 +97,4 @@ thread_entry_stub:
     add rsp, 16 ; skip interrupt number and error code
 
     iretq
+

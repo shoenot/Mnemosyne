@@ -9,7 +9,7 @@ use super::{
     paging::*,
     pmm::*,
 };
-use crate::kernel::lock::TicketLock;
+use crate::kernel::sync::TicketLock;
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;

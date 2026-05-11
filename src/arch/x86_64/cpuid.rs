@@ -3,6 +3,8 @@ use core::arch::x86_64::{
     __cpuid_count,
 };
 
+use crate::helpers::bitwise::check_bit;
+
 // TIMER
 
 pub fn has_invariant_tsc() -> bool {
@@ -45,11 +47,12 @@ pub fn check_apic_frequency() -> Option<usize> {
 /// EAX: Valid bits for XCR0
 /// EBX: Required buffer size based on XCR0 enabled bits
 /// ECX: Max possible size if everything enabled
-pub fn get_xsave_sl0() -> (usize, usize, usize) {
+pub fn get_xsave_details() -> (usize, usize, usize) {
     let size = __cpuid_count(0xD, 0);
     (size.eax as usize, size.ebx as usize, size.ecx as usize)
 }
 
-pub fn get_xsaveopt() -> Option<usize> {
-    todo!()
+pub fn check_xsave_support() -> bool {
+    let leaf1 = __cpuid(1);
+    check_bit(leaf1.ecx, 26)
 }

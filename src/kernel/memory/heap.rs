@@ -12,7 +12,7 @@ use crate::{
     GLOBAL_VMM,
     HHDMOFFSET,
     kernel::{
-        lock::TicketLock,
+        sync::TicketLock,
         memory::{
             pmm::{
                 HUGE_PAGE_SIZE,

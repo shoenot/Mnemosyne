@@ -1,30 +1,47 @@
 use core::{
-    arch::asm,
+    arch::asm, 
+    mem::transmute, 
+    ptr::null_mut,
     sync::atomic::{
-        AtomicBool,
-        AtomicUsize,
-        Ordering,
-    },
+        AtomicBool, 
+        AtomicPtr, 
+        AtomicUsize, 
+        Ordering
+    }
 };
 
 use crate::{
     LOCAL_APIC,
     PAGER,
     arch::x86_64::{
-        apic::lapic::*,
-        cpuid::*,
-        timer,
+        apic::lapic::*, 
+        cpuid::*, 
+        interrupts::{
+            disable_interrupts, 
+            enable_interrupts
+        }, 
+        timer::{
+            self, *,
+            hpet::read_hpet_direct,
+            tsc::read_tsc_direct,
+        },
     },
     kernel::{
         acpi::hpet::get_hpet_base_addr,
-        lock::TicketLock,
+        sync::TicketLock, 
+        thread::{
+            ThreadState,
+            schedule::SCHEDULER,
+        },
     },
 };
 
 pub static TIME_SRC_FQ: AtomicUsize = AtomicUsize::new(0);
 pub static LAPIC_FQ: AtomicUsize = AtomicUsize::new(0);
-pub static TIME_SOURCE: TicketLock<TimeSource> = TicketLock::new(TimeSource::None);
 pub static USE_TSC_DEADLINE: AtomicBool = AtomicBool::new(false);
+pub static TIME_SOURCE: TicketLock<TimeSource> = TicketLock::new(TimeSource::None);
+pub static HPET_BASE_ADDR: AtomicPtr<usize> = AtomicPtr::new(null_mut());
+
 
 const IA32_TSC_DEADLINE: u32 = 0x6E0;
 
@@ -91,6 +108,34 @@ pub fn arm_sleep_ns(ns: usize) {
     }
 }
 
+pub fn ns_to_ticks(ns: usize) -> usize {
+    let freq = TIME_SRC_FQ.load(Ordering::Relaxed);
+    ((ns as u128 * freq as u128) / 1_000_000_000) as usize
+}
+
+pub fn get_time() -> usize {
+    let ptr = GET_TIME_FN.load(Ordering::Relaxed);
+    let time_func: TimeFn = unsafe { transmute(ptr) };
+    time_func()
+}
+
+pub fn sleep(ns: usize) {
+    let target_time = get_time() + ns_to_ticks(ns);
+    disable_interrupts();
+
+    let mut sched = SCHEDULER.lock();
+    let current_thread = sched.get_current_thread();
+    unsafe {
+        (*current_thread).state = ThreadState::Blocked;
+        (*current_thread).wake_time = target_time;
+    }
+    sched.push_sleep(current_thread);
+    sched.schedule();
+
+    drop(sched);
+    enable_interrupts();
+}
+
 pub fn init() {
     let use_tsc = has_invariant_tsc();
 
@@ -106,6 +151,7 @@ pub fn init() {
 
     if need_hpet {
         if let Some(addr) = get_hpet_base_addr() {
+            HPET_BASE_ADDR.store(addr as *mut usize, Ordering::Relaxed);
             let mut pager = PAGER.lock();
             pager.map_mmio_addr((addr as u64) & !0xFFF);
             let mut hpet = timer::hpet::HPET { base_addr: 0, frequency: 0, enabled: false };
@@ -184,10 +230,12 @@ pub fn init() {
         let tsc = timer::tsc::TSC { frequency: tsc_fq };
         TIME_SRC_FQ.store(tsc_fq, Ordering::Relaxed);
         *TIME_SOURCE.lock() = TimeSource::TSC(tsc);
+        GET_TIME_FN.store(read_tsc_direct as *mut (), Ordering::Relaxed);
     } else {
         let hpet = hpet_opt.expect("FATAL: Hardware requirements not met (Missing TSC and HPET)");
         TIME_SRC_FQ.store(hpet.frequency, Ordering::Relaxed);
         *TIME_SOURCE.lock() = TimeSource::HPET(hpet);
+        GET_TIME_FN.store(read_hpet_direct as *mut (), Ordering::Relaxed);
     }
 
     // oneshot timer ( TSC Deadline or LAPIC )

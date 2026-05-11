@@ -3,6 +3,8 @@ pub mod cpuid;
 pub mod interrupts;
 pub mod io;
 pub mod timer;
+pub mod task;
+pub mod cpu;
 
 use apic::{
     ioapic::*,

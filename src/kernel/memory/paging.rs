@@ -3,7 +3,7 @@
 use core::arch::asm;
 
 use super::pmm::*;
-use crate::kernel::lock::TicketLock;
+use crate::kernel::sync::TicketLock;
 
 type PhysAlloc = TicketLock<Allocator>;
 
