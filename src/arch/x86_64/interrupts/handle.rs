@@ -1,9 +1,14 @@
 use core::arch::asm;
-use super::idt::InterruptStackFrame;
-use core::sync::atomic::Ordering;
-use super::super::apic::lapic::send_apic_eoi;
+
 use crate::{
-    GLOBAL_VMM, USE_TSC_DEADLINE, kernel::time::{self, arm_sleep_ns}, klogln, SCHEDULER
+    GLOBAL_VMM, 
+    SCHEDULER, 
+    klogln, 
+    kernel::time::arm_sleep_ns,
+    arch::x86_64::{
+        interrupts::idt::InterruptStackFrame, 
+        apic::lapic::send_apic_eoi,
+    },
 };
 
 // HELPERS

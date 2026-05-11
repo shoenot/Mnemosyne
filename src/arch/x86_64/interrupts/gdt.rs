@@ -1,6 +1,5 @@
 use core::arch::asm;
 use lazy_static::lazy_static;
-use crate::drivers::serial::log_to_serial;
 
 pub const KERNEL_CS: u64 = 0x08;
 pub const KERNEL_SS: u64 = 0x10;
