@@ -17,23 +17,11 @@ use core::{
     },
 };
 
-#[inline]
-fn interrupts_enabled() -> bool {
-    let rflags: usize;
-    unsafe {
-        asm!("pushf",
-            "pop {}",
-            out(reg) rflags,
-            options(nomem, preserves_flags))
-    }
-    (rflags & (1 << 9)) != 0
-}
-
-#[inline]
-fn enable_interrupts() { unsafe { asm!("sti", options(nomem, nostack)) }; }
-
-#[inline]
-fn disable_interrupts() { unsafe { asm!("cli", options(nomem, nostack)) }; }
+use crate::arch::x86_64::interrupts::{
+    enable_interrupts,
+    disable_interrupts,
+    interrupts_enabled
+};
 
 pub trait RawLock {
     fn lock(&self);
