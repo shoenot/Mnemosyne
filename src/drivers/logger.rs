@@ -1,31 +1,25 @@
-use core::{
-    fmt::{
-        self,
-        Write,
-    },
-    mem::MaybeUninit,
+use core::fmt::{
+    self,
+    Write,
 };
+use core::mem::MaybeUninit;
 
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 
-use super::{
-    graphics::{
-        GraphicsWriter,
-        SyncFramebuffer,
-    },
-    serial::{
-        SerialWriter,
-        init_serial,
-        log_to_serial,
-    },
+use super::graphics::{
+    GraphicsWriter,
+    SyncFramebuffer,
 };
-use crate::{
-    boot::FRAMEBUFFER_REQUEST,
-    kernel::sync::{
-        KernelOnceCell,
-        TicketLock,
-    },
+use super::serial::{
+    SerialWriter,
+    init_serial,
+    log_to_serial,
+};
+use crate::boot::FRAMEBUFFER_REQUEST;
+use crate::kernel::sync::{
+    KernelOnceCell,
+    TicketLock,
 };
 
 const FONT_DATA: &[u8] = include_bytes!("../../build_deps/zap-ext-light16.psf");

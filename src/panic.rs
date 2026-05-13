@@ -1,12 +1,8 @@
-use core::{
-    arch::asm,
-    panic::PanicInfo,
-};
+use core::arch::asm;
+use core::panic::PanicInfo;
 
-use crate::{
-    drivers::logger::LOGGER,
-    klogln,
-};
+use crate::drivers::logger::LOGGER;
+use crate::klogln;
 
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {

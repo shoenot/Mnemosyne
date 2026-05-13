@@ -1,37 +1,38 @@
-use core::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use core::sync::atomic::{
+    AtomicU64,
+    AtomicUsize,
+    Ordering,
+};
 
 use limine::mp::MpInfo;
 
-use crate::{
-    arch::{
-        init_ap_fpu,
-        init_fpu,
-        x86_64::{
-            apic::lapic::{
-                ApicDriver,
-                ApicMode,
-                TimerMode,
-                init_local_apic,
-            },
-            cpu::core::{
-                CPULocalData,
-                activate_core,
-                get_core_data,
-            },
-            interrupts::{
-                enable_interrupts,
-                idt::load_idt,
-            },
-        },
-    },
-    hcf,
-    kernel::{
-        sync::TicketLock, thread::{ThreadState, schedule::DEFAULT_QUANTUM}, time::{
-            USE_TSC_DEADLINE, arm_sleep_ns, sleep
-        }
-    },
-    klogln, memory::paging::load_cr3,
+use crate::arch::x86_64::apic::lapic::{
+    ApicDriver,
+    ApicMode,
+    TimerMode,
+    init_local_apic,
 };
+use crate::arch::x86_64::cpu::core::{
+    CPULocalData,
+    activate_core,
+    get_core_data,
+};
+use crate::arch::x86_64::interrupts::enable_interrupts;
+use crate::arch::x86_64::interrupts::idt::load_idt;
+use crate::arch::{
+    init_ap_fpu,
+    init_fpu,
+};
+use crate::kernel::sync::TicketLock;
+use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::schedule::DEFAULT_QUANTUM;
+use crate::kernel::time::{
+    USE_TSC_DEADLINE,
+    arm_sleep_ns,
+    sleep,
+};
+use crate::klogln;
+use crate::memory::paging::load_cr3;
 
 pub static BSP_CR3: AtomicU64 = AtomicU64::new(0);
 
@@ -41,7 +42,7 @@ pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
     activate_core(core_data_ptr);
 
     load_idt();
-    init_ap_fpu();
+    init_fpu(false);
 
     let core_data = get_core_data();
 
@@ -65,35 +66,8 @@ pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
     enable_interrupts();
 
     let scheduler = &mut core_data.scheduler;
-    let current_thread = scheduler.get_current_thread();
-    unsafe { (*current_thread).state = ThreadState::Terminated; }
-    arm_sleep_ns(DEFAULT_QUANTUM);
-    scheduler.schedule();
-    hcf();
-}
 
-#[allow(dead_code)]
-pub fn ap_test_thread(thread_id: usize) -> ! {
-    let mut count: usize = 0;
-    loop {
-        klogln!("This is thread {} on core {} and the counter is at {}", thread_id, get_core_data().lapic_id, count);
-        count += 1;
-    }
-}
+    scheduler.terminate();
 
-pub static RACE_COUNTER: TicketLock<usize> = TicketLock::new(0);
-pub static THREADS_FINISHED: AtomicUsize = AtomicUsize::new(0);
-
-pub extern "C" fn contention_thread(_id: usize) -> ! {
-    for _ in 0..10_000_000 {
-        let mut guard = RACE_COUNTER.lock();
-        let val = *guard;
-        *guard = val + 1;
-    }
-
-    THREADS_FINISHED.fetch_add(1, Ordering::Relaxed);
-    
-    loop {
-        crate::kernel::time::sleep(1_000_000); 
-    }
+    unreachable!();
 }

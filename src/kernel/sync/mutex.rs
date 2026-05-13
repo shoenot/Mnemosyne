@@ -1,31 +1,21 @@
-use core::{
-    cell::UnsafeCell,
-    ops::{
-        Deref,
-        DerefMut,
-    },
-    sync::atomic::{
-        AtomicBool,
-        Ordering,
-    },
+use core::cell::UnsafeCell;
+use core::ops::{
+    Deref,
+    DerefMut,
+};
+use core::sync::atomic::{
+    AtomicBool,
+    Ordering,
 };
 
-use crate::{
-    arch::x86_64::{
-        cpu::core::get_core_data,
-        interrupts::{
-            disable_interrupts,
-            enable_interrupts,
-        },
-    },
-    kernel::{
-        sync::TicketLock,
-        thread::{
-            ThreadState,
-            wait::WaitQueue,
-        },
-    },
+use crate::arch::x86_64::cpu::core::get_core_data;
+use crate::arch::x86_64::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
 };
+use crate::kernel::sync::TicketLock;
+use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::wait::WaitQueue;
 
 pub struct Mutex<T> {
     is_locked: AtomicBool,

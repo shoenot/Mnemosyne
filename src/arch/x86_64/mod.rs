@@ -6,16 +6,14 @@ pub mod io;
 pub mod task;
 pub mod timer;
 
-use apic::{
-    ioapic::*,
-    lapic::get_apic_base,
-};
+use apic::ioapic::*;
+use apic::lapic::get_apic_base;
 
+use crate::kernel::sync::TicketLock;
+use crate::memory::PAGER;
 use crate::{
-    kernel::sync::TicketLock,
     klog,
     klogln,
-    memory::PAGER,
 };
 
 pub static IO_APIC: TicketLock<IOApic> = TicketLock::new(IOApic { base_addr: 0, gsi_base: 0 });

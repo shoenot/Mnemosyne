@@ -1,9 +1,7 @@
 use core::slice::from_raw_parts;
 
-use crate::{
-    boot::RSDP_REQUEST,
-    memory::HHDMOFFSET,
-};
+use crate::boot::RSDP_REQUEST;
+use crate::memory::HHDMOFFSET;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]

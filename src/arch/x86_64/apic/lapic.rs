@@ -1,23 +1,17 @@
-use core::{
-    arch::{
-        asm,
-        x86_64::__cpuid,
-    },
-    ptr::{
-        read_volatile,
-        write_volatile,
-    },
+use core::arch::asm;
+use core::arch::x86_64::__cpuid;
+use core::ptr::{
+    read_volatile,
+    write_volatile,
 };
 
 use super::pic8259;
-use crate::{
-    helpers::bitwise::{
-        check_bit,
-        set_bit,
-    },
-    kernel::sync::KernelOnceCell,
-    memory::HHDMOFFSET,
+use crate::helpers::bitwise::{
+    check_bit,
+    set_bit,
 };
+use crate::kernel::sync::KernelOnceCell;
+use crate::memory::HHDMOFFSET;
 
 const SV_OFFSET: usize = 0xF0;
 const EOI_OFFSET: usize = 0xB0;

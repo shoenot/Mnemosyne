@@ -1,19 +1,17 @@
-use core::{
-    cell::UnsafeCell,
-    hint::spin_loop,
-    ops::{
-        Deref,
-        DerefMut,
-    },
-    sync::atomic::{
-        AtomicBool,
-        AtomicUsize,
-        Ordering::{
-            Acquire,
-            Relaxed,
-            Release,
-        },
-    },
+use core::cell::UnsafeCell;
+use core::hint::spin_loop;
+use core::ops::{
+    Deref,
+    DerefMut,
+};
+use core::sync::atomic::Ordering::{
+    Acquire,
+    Relaxed,
+    Release,
+};
+use core::sync::atomic::{
+    AtomicBool,
+    AtomicUsize,
 };
 
 use crate::arch::x86_64::interrupts::{

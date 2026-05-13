@@ -6,14 +6,14 @@ use core::arch::asm;
 #[inline]
 pub(crate) fn disable_interrupts() {
     unsafe {
-        asm!("cli", options(nomem, nostack));
+        asm!("cli", options(nostack));
     }
 }
 
 #[inline]
 pub(crate) fn enable_interrupts() {
     unsafe {
-        asm!("sti", options(nomem, nostack));
+        asm!("sti", options(nostack));
     }
 }
 

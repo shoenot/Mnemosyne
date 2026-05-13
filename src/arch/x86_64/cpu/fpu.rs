@@ -1,28 +1,24 @@
 use alloc::alloc::alloc;
-use core::{
-    alloc::Layout,
-    arch::asm,
-    ptr::{
-        copy_nonoverlapping,
-        null_mut,
-    },
-    sync::atomic::{
-        AtomicBool,
-        AtomicPtr,
-        AtomicUsize,
-        Ordering,
-    },
+use core::alloc::Layout;
+use core::arch::asm;
+use core::ptr::{
+    copy_nonoverlapping,
+    null_mut,
+};
+use core::sync::atomic::{
+    AtomicBool,
+    AtomicPtr,
+    AtomicUsize,
+    Ordering,
 };
 
-use crate::{
-    BOOTSTRAP_ALLOC, arch::x86_64::cpuid::{
-        check_xsave_support,
-        get_xsave_details,
-    }, kernel::{
-        sync::TicketLock,
-        thread::ThreadError,
-    }
+use crate::BOOTSTRAP_ALLOC;
+use crate::arch::x86_64::cpuid::{
+    check_xsave_support,
+    get_xsave_details,
 };
+use crate::kernel::sync::TicketLock;
+use crate::kernel::thread::ThreadError;
 
 pub(crate) static CLEAN_FPU_CXT: AtomicPtr<u8> = AtomicPtr::new(null_mut() as *mut u8);
 pub(crate) static CLEAN_LEGACY_FPU_CXT: TicketLock<Option<LegacyXtCxt>> = TicketLock::new(None);

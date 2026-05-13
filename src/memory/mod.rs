@@ -1,22 +1,24 @@
+mod bootalloc;
 pub mod heap;
 pub mod paging;
 mod pmm;
 mod vmm;
-mod bootalloc;
 
+pub use bootalloc::*;
 use heap::*;
 use paging::*;
-pub use pmm::HHDMOFFSET;
-pub use pmm::BlockSize;
-pub use bootalloc::*;
 use pmm::*;
+pub use pmm::{
+    BlockSize,
+    HHDMOFFSET,
+};
 use vmm::*;
 
+use crate::kernel::sync::TicketLock;
+use crate::tests::memory_tests;
 use crate::{
-    kernel::sync::TicketLock,
     klog,
     klogln,
-    tests::memory_tests,
 };
 
 #[global_allocator]

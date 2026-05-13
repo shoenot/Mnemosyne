@@ -4,32 +4,35 @@ use alloc::alloc::{
     Layout,
     alloc,
 };
-use core::{
-    mem::size_of, ptr::{copy_nonoverlapping, null_mut, write_bytes, write_volatile}, sync::atomic::{
-        AtomicUsize,
-        Ordering,
-    }
+use core::mem::size_of;
+use core::ptr::{
+    copy_nonoverlapping,
+    null_mut,
+    write_bytes,
+    write_volatile,
+};
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
 };
 
-use crate::{
-    BOOTSTRAP_ALLOC, arch::x86_64::{
-        cpu::{
-            fpu::*,
-            gdt::{
-                KERNEL_CS,
-                KERNEL_SS,
-            },
-        },
-        task::context::*,
-    }, kernel::thread::{
-        ThreadControlBlock,
-        ThreadError,
-        ThreadState,
-        idle::*,
-        switch_threads_avx,
-        switch_threads_legacy,
-    }
+use crate::BOOTSTRAP_ALLOC;
+use crate::arch::x86_64::cpu::fpu::*;
+use crate::arch::x86_64::cpu::gdt::{
+    KERNEL_CS,
+    KERNEL_SS,
 };
+use crate::arch::x86_64::interrupts::disable_interrupts;
+use crate::arch::x86_64::task::context::*;
+use crate::kernel::thread::idle::*;
+use crate::kernel::thread::{
+    ThreadControlBlock,
+    ThreadError,
+    ThreadState,
+    switch_threads_avx,
+    switch_threads_legacy,
+};
+use crate::kernel::time::arm_sleep_ns;
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
 
@@ -132,7 +135,7 @@ impl SchedulerState {
             for i in 0..(stack_size / 8) {
                 write_volatile(stack_ptr_u64.add(i), 0);
             }
-            
+
             write_volatile(tcb_ptr as *mut u8, 0);
         }
 
@@ -281,5 +284,14 @@ impl SchedulerState {
             (*thread).state = ThreadState::Ready;
         }
         self.push(thread);
+    }
+
+    pub fn terminate(&mut self) {
+        unsafe {
+            disable_interrupts();
+            (*self.current_thread).state = ThreadState::Terminated;
+            arm_sleep_ns(DEFAULT_QUANTUM);
+            self.schedule();
+        }
     }
 }

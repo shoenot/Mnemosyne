@@ -4,7 +4,10 @@ use alloc::alloc::{
 };
 use core::ptr::write_volatile;
 
-use crate::{BOOTSTRAP_ALLOC, klogln};
+use crate::{
+    BOOTSTRAP_ALLOC,
+    klogln,
+};
 
 pub(crate) const KERNEL_CS: u64 = 0x08;
 pub(crate) const KERNEL_SS: u64 = 0x10;
@@ -47,7 +50,8 @@ struct TaskStateSegment {
 
 impl TaskStateSegment {
     fn new() -> Self {
-        let mut tss = TaskStateSegment { reserved_1: 0, rsp: [0; 3], reserved_2: 0, ist: [0; 7], reserved_3: 0, reserved_4: 0, iomap_base: 104 };
+        let mut tss =
+            TaskStateSegment { reserved_1: 0, rsp: [0; 3], reserved_2: 0, ist: [0; 7], reserved_3: 0, reserved_4: 0, iomap_base: 104 };
         let int_stack_ptr = BOOTSTRAP_ALLOC.lock().alloc(8192, 4096);
         let stack_top = int_stack_ptr as u64 + 8192;
 

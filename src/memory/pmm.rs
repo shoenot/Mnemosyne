@@ -2,10 +2,10 @@ use core::ops::Deref;
 
 use limine::memmap::*;
 
+use crate::kernel::sync::KernelOnceCell;
 use crate::{
     HHDM_REQUEST,
     MEMMAP_REQUEST,
-    kernel::sync::KernelOnceCell,
 };
 
 pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();

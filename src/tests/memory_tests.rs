@@ -1,18 +1,14 @@
-use alloc::{
-    alloc::{
-        Layout,
-        alloc,
-        dealloc,
-    },
-    boxed::Box,
-    vec::Vec,
+use alloc::alloc::{
+    Layout,
+    alloc,
+    dealloc,
 };
-use core::{
-    hint::black_box,
-    ptr::{
-        read_volatile,
-        write_volatile,
-    },
+use alloc::boxed::Box;
+use alloc::vec::Vec;
+use core::hint::black_box;
+use core::ptr::{
+    read_volatile,
+    write_volatile,
 };
 
 use crate::{

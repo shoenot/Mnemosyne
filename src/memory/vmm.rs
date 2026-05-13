@@ -5,10 +5,8 @@ use alloc::alloc::{
     alloc,
 };
 
-use super::{
-    paging::*,
-    pmm::*,
-};
+use super::paging::*;
+use super::pmm::*;
 use crate::kernel::sync::TicketLock;
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;

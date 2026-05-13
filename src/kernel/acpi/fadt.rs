@@ -1,9 +1,7 @@
 #![allow(dead_code)]
 
-use crate::kernel::{
-    acpi,
-    acpi::sdt::ACPISDTHeader,
-};
+use crate::kernel::acpi;
+use crate::kernel::acpi::sdt::ACPISDTHeader;
 
 #[repr(C, packed)]
 #[derive(Copy, Clone)]

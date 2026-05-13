@@ -2,11 +2,22 @@ use alloc::alloc::{
     Layout,
     alloc,
 };
-use core::{arch::asm, intrinsics::write_bytes, sync::atomic::{AtomicU64, AtomicUsize, Ordering}};
+use core::arch::asm;
+use core::intrinsics::write_bytes;
+use core::sync::atomic::{
+    AtomicU64,
+    AtomicUsize,
+    Ordering,
+};
 
 use super::gdt::*;
-use crate::{
-    BOOTSTRAP_ALLOC, arch::x86_64::apic::lapic::ApicMode, kernel::thread::schedule::SchedulerState, memory::{ALLOCATOR, BlockSize, HHDMOFFSET}
+use crate::BOOTSTRAP_ALLOC;
+use crate::arch::x86_64::apic::lapic::ApicMode;
+use crate::kernel::thread::schedule::SchedulerState;
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    HHDMOFFSET,
 };
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
@@ -65,4 +76,3 @@ pub fn get_core_data() -> &'static mut CPULocalData {
         &mut *(data_addr as *mut CPULocalData)
     }
 }
-

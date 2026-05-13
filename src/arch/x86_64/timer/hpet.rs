@@ -1,18 +1,14 @@
-use core::{
-    ptr::{
-        read_volatile,
-        write_volatile,
-    },
-    sync::atomic::Ordering,
+use core::ptr::{
+    read_volatile,
+    write_volatile,
 };
+use core::sync::atomic::Ordering;
 
-use crate::{
-    kernel::time::{
-        ClockSource,
-        HPET_BASE_ADDR,
-    },
-    memory::HHDMOFFSET,
+use crate::kernel::time::{
+    ClockSource,
+    HPET_BASE_ADDR,
 };
+use crate::memory::HHDMOFFSET;
 
 const HPET_GEN_CAP_OFFSET: usize = 0x0;
 const HPET_GEN_CONF_OFFSET: usize = 0x10;

@@ -1,4 +1,9 @@
-use crate::{kernel::sync::{KernelOnceCell, TicketLock}, memory::{HHDMOFFSET, pmm::HUGE_PAGE_SIZE}};
+use crate::kernel::sync::{
+    KernelOnceCell,
+    TicketLock,
+};
+use crate::memory::HHDMOFFSET;
+use crate::memory::pmm::HUGE_PAGE_SIZE;
 
 pub struct BumpAllocator {
     virt_base: usize,

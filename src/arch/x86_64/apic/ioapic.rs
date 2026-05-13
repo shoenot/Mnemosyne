@@ -3,10 +3,8 @@ use core::ptr::{
     write_volatile,
 };
 
-use crate::{
-    kernel::acpi,
-    memory::HHDMOFFSET,
-};
+use crate::kernel::acpi;
+use crate::memory::HHDMOFFSET;
 
 const IOREGSEL_OFFSET: usize = 0x00;
 const IOWIN_OFFSET: usize = 0x10;

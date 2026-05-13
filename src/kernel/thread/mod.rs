@@ -3,10 +3,8 @@ pub mod schedule;
 pub mod tcb;
 pub mod wait;
 
-use core::{
-    alloc::LayoutError,
-    fmt,
-};
+use core::alloc::LayoutError;
+use core::fmt;
 
 pub use tcb::*;
 

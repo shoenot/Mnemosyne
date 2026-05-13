@@ -1,26 +1,20 @@
 use core::arch::asm;
 
-use crate::{
-    arch::x86_64::{
-        apic::lapic::{
-            ApicDriver,
-            ApicMode,
-        },
-        cpu::core::get_core_data,
-        interrupts::idt::InterruptStackFrame,
-    },
-    kernel::{
-        thread::{
-            schedule::DEFAULT_QUANTUM,
-            tcb::ThreadState,
-        },
-        time::{
-            arm_sleep_ns, arm_sleep_ticks, get_time
-        },
-    },
-    klogln,
-    memory::GLOBAL_VMM,
+use crate::arch::x86_64::apic::lapic::{
+    ApicDriver,
+    ApicMode,
 };
+use crate::arch::x86_64::cpu::core::get_core_data;
+use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
+use crate::kernel::thread::schedule::DEFAULT_QUANTUM;
+use crate::kernel::thread::tcb::ThreadState;
+use crate::kernel::time::{
+    arm_sleep_ns,
+    arm_sleep_ticks,
+    get_time,
+};
+use crate::klogln;
+use crate::memory::GLOBAL_VMM;
 
 pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut InterruptStackFrame) {
     let cr2: u64;
@@ -43,7 +37,7 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
     klogln!("Unexpected Interrupt.\nStack Frame:\n{:#?}", frame);
 }
 
-pub(in crate::arch::x86_64::interrupts) fn lapic_interrupt_handler() {
+pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
     let current_time = get_time();
 
@@ -81,4 +75,11 @@ pub(in crate::arch::x86_64::interrupts) fn lapic_interrupt_handler() {
     }
 
     sched.schedule();
+}
+
+pub(in crate::arch::x86_64::interrupts) fn ipi_handler() {
+    let core_data = get_core_data();
+    core_data.apic_mode.eoi();
+    klogln!(">>> Core {} forcefully woken up by an IPI <<<", core_data.lapic_id);
+    core_data.scheduler.schedule();
 }

@@ -1,10 +1,8 @@
+use crate::arch::x86_64::cpu::core::get_core_data;
+use crate::kernel::sync::Mutex;
+use crate::kernel::thread::ThreadState;
 use crate::{
-    arch::x86_64::cpu::core::get_core_data,
     hcf,
-    kernel::{
-        sync::Mutex,
-        thread::ThreadState,
-    },
     klogln,
 };
 

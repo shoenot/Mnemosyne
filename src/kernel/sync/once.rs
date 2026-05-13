@@ -1,12 +1,10 @@
-use core::{
-    cell::UnsafeCell,
-    hint::spin_loop,
-    mem::MaybeUninit,
-    ops::Deref,
-    sync::atomic::{
-        AtomicUsize,
-        Ordering,
-    },
+use core::cell::UnsafeCell;
+use core::hint::spin_loop;
+use core::mem::MaybeUninit;
+use core::ops::Deref;
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
 };
 
 pub struct KernelOnceCell<T> {

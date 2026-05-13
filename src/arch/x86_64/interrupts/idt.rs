@@ -1,10 +1,8 @@
 use core::arch::asm;
 
-use crate::{
-    arch::x86_64::interrupts::handle,
-    kernel::sync::KernelOnceCell,
-    klogln,
-};
+use crate::arch::x86_64::interrupts::handle;
+use crate::kernel::sync::KernelOnceCell;
+use crate::klogln;
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -120,7 +118,8 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         13 => handle::gpf_handler(frame),
         14 => handle::page_fault_handler(frame),
         15 => handle::unexpected_interrupt_handler(frame),
-        35 => handle::lapic_interrupt_handler(), // LAPIC Timer
+        35 => handle::timer_interrupt_handler(),
+        64 => handle::ipi_handler(),
         _ => {
             if frame.interrupt_number >= 32 {
                 klogln!("Spurious IRQ: {}", frame.interrupt_number);

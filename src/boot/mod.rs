@@ -1,16 +1,16 @@
 pub mod smp;
 
+use limine::request::{
+    FramebufferRequest,
+    HhdmRequest,
+    MemmapRequest,
+    MpRequest,
+    RsdpRequest,
+};
 use limine::{
     BaseRevision,
     RequestsEndMarker,
     RequestsStartMarker,
-    request::{
-        FramebufferRequest,
-        HhdmRequest,
-        MemmapRequest,
-        MpRequest,
-        RsdpRequest,
-    },
 };
 
 use crate::hcf;

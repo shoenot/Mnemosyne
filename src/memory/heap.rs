@@ -1,10 +1,8 @@
-use core::{
-    alloc::{
-        GlobalAlloc,
-        Layout,
-    },
-    ptr::null_mut,
+use core::alloc::{
+    GlobalAlloc,
+    Layout,
 };
+use core::ptr::null_mut;
 
 use super::{
     ALLOCATOR,
@@ -12,19 +10,15 @@ use super::{
     GLOBAL_VMM,
     HHDMOFFSET,
 };
-use crate::{
-    kernel::sync::TicketLock,
-    memory::{
-        pmm::{
-            HUGE_PAGE_SIZE,
-            NORMAL_PAGE_SIZE,
-        },
-        vmm::{
-            VM_FLAG_GLOBAL,
-            VM_FLAG_HUGE,
-            VM_FLAG_WRITE,
-        },
-    },
+use crate::kernel::sync::TicketLock;
+use crate::memory::pmm::{
+    HUGE_PAGE_SIZE,
+    NORMAL_PAGE_SIZE,
+};
+use crate::memory::vmm::{
+    VM_FLAG_GLOBAL,
+    VM_FLAG_HUGE,
+    VM_FLAG_WRITE,
 };
 
 const CACHE_SIZES: [usize; 10] = [8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096];

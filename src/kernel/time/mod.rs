@@ -1,38 +1,30 @@
 mod clock;
 
-use core::{
-    ptr::null_mut,
-    sync::atomic::{
-        AtomicBool,
-        AtomicPtr,
-        AtomicUsize,
-        Ordering,
-    },
+use core::ptr::null_mut;
+use core::sync::atomic::{
+    AtomicBool,
+    AtomicPtr,
+    AtomicUsize,
+    Ordering,
 };
 
 pub use clock::*;
 
-use crate::{
-    arch::{
-        self,
-        x86_64::{
-            apic::lapic::*,
-            cpu::core::get_core_data,
-            cpuid::*,
-            timer::{
-                self,
-                hpet::read_hpet_direct,
-                tsc::read_tsc_direct,
-                *,
-            },
-        },
-    },
-    kernel::{
-        acpi::hpet::get_hpet_base_addr,
-        sync::TicketLock,
-    },
-    memory::PAGER,
+use crate::arch::x86_64::apic::lapic::*;
+use crate::arch::x86_64::cpu::core::get_core_data;
+use crate::arch::x86_64::cpuid::*;
+use crate::arch::x86_64::timer::hpet::read_hpet_direct;
+use crate::arch::x86_64::timer::tsc::read_tsc_direct;
+use crate::arch::x86_64::timer::{
+    self,
+    *,
 };
+use crate::arch::{
+    self,
+};
+use crate::kernel::acpi::hpet::get_hpet_base_addr;
+use crate::kernel::sync::TicketLock;
+use crate::memory::PAGER;
 
 pub static TIME_SRC_FQ: AtomicUsize = AtomicUsize::new(0);
 pub static LAPIC_FQ: AtomicUsize = AtomicUsize::new(0);

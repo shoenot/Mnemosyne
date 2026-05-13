@@ -1,29 +1,21 @@
-use core::{
-    arch::asm,
-    mem::transmute,
-    sync::atomic::Ordering,
-};
+use core::arch::asm;
+use core::mem::transmute;
+use core::sync::atomic::Ordering;
 
-use crate::{
-    arch::x86_64::{
-        apic::lapic::ApicDriver,
-        cpu::core::get_core_data,
-        interrupts::{
-            disable_interrupts,
-            enable_interrupts,
-        },
-    },
-    kernel::{
-        thread::ThreadState,
-        time::{
-            GET_TIME_FN,
-            IA32_TSC_DEADLINE,
-            LAPIC_FQ,
-            TIME_SRC_FQ,
-            TimeFn,
-            USE_TSC_DEADLINE,
-        },
-    },
+use crate::arch::x86_64::apic::lapic::ApicDriver;
+use crate::arch::x86_64::cpu::core::get_core_data;
+use crate::arch::x86_64::interrupts::{
+    disable_interrupts,
+    enable_interrupts,
+};
+use crate::kernel::thread::ThreadState;
+use crate::kernel::time::{
+    GET_TIME_FN,
+    IA32_TSC_DEADLINE,
+    LAPIC_FQ,
+    TIME_SRC_FQ,
+    TimeFn,
+    USE_TSC_DEADLINE,
 };
 
 pub fn arm_sleep_ns(ns: usize) {
@@ -77,7 +69,7 @@ pub fn arm_sleep_ticks(ticks: usize) {
     } else {
         let global_fq = TIME_SRC_FQ.load(Ordering::Relaxed) as u128;
         let lapic_fq = LAPIC_FQ.load(Ordering::Relaxed) as u128;
-        
+
         let lapic_ticks = (ticks as u128 * lapic_fq) / global_fq;
         let core_data = get_core_data();
         core_data.apic_mode.arm_oneshot(lapic_ticks as u32);
