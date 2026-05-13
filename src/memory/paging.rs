@@ -89,7 +89,7 @@ pub fn get_flags(
     flags
 }
 
-fn get_cr3() -> u64 {
+pub fn get_cr3() -> u64 {
     let cr3: u64;
     unsafe {
         asm!("mov {0}, cr3", 
@@ -99,7 +99,7 @@ fn get_cr3() -> u64 {
     cr3
 }
 
-fn load_cr3(addr: u64) {
+pub fn load_cr3(addr: u64) {
     unsafe {
         asm!("mov cr3, {0}",
             in(reg) addr,

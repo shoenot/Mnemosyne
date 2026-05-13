@@ -1,27 +1,30 @@
 use core::{
-    cell::UnsafeCell, 
+    cell::UnsafeCell,
     ops::{
-        Deref, 
-        DerefMut
-    }, 
+        Deref,
+        DerefMut,
+    },
     sync::atomic::{
         AtomicBool,
         Ordering,
-    }
+    },
 };
 
 use crate::{
-    arch::x86_64::interrupts::{
-        disable_interrupts, 
-        enable_interrupts
-    }, 
+    arch::x86_64::{
+        cpu::core::get_core_data,
+        interrupts::{
+            disable_interrupts,
+            enable_interrupts,
+        },
+    },
     kernel::{
-        sync::TicketLock, 
+        sync::TicketLock,
         thread::{
-            schedule::SCHEDULER, 
-            ThreadState, 
-            wait::WaitQueue}
-    }
+            ThreadState,
+            wait::WaitQueue,
+        },
+    },
 };
 
 pub struct Mutex<T> {
@@ -39,22 +42,18 @@ pub struct MutexGuard<'a, T> {
 
 impl<T> Mutex<T> {
     pub const fn new(data: T) -> Self {
-        Self { 
-            is_locked: AtomicBool::new(false), 
-            wait_queue: TicketLock::new(WaitQueue::new()),
-            data: UnsafeCell::new(data) 
-        }
+        Self { is_locked: AtomicBool::new(false), wait_queue: TicketLock::new(WaitQueue::new()), data: UnsafeCell::new(data) }
     }
 
     pub fn lock(&self) -> MutexGuard<T> {
         loop {
             if !self.is_locked.swap(true, Ordering::Acquire) {
-                return MutexGuard { mutex: self }
+                return MutexGuard { mutex: self };
             }
 
             disable_interrupts();
 
-            let mut sched = SCHEDULER.lock();
+            let sched = &mut get_core_data().scheduler;
             let mut wq = self.wait_queue.lock();
 
             // check if someone unlocked it while we were grabbing locks
@@ -76,7 +75,7 @@ impl<T> Mutex<T> {
             // yield cpu
             sched.schedule();
 
-            // continues here when unlocked 
+            // continues here when unlocked
             drop(sched);
             enable_interrupts();
         }
@@ -92,7 +91,7 @@ impl<T> Mutex<T> {
         drop(wq);
 
         if !next_thread.is_null() {
-            let mut sched = SCHEDULER.lock();
+            let sched = &mut get_core_data().scheduler;
             unsafe {
                 (*next_thread).state = ThreadState::Ready;
             }
@@ -106,19 +105,13 @@ impl<T> Mutex<T> {
 
 impl<'a, T> Deref for MutexGuard<'a, T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.mutex.data.get() }
-    }
+    fn deref(&self) -> &Self::Target { unsafe { &*self.mutex.data.get() } }
 }
 
 impl<'a, T> DerefMut for MutexGuard<'a, T> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        unsafe { &mut *self.mutex.data.get() }
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { unsafe { &mut *self.mutex.data.get() } }
 }
 
 impl<'a, T> Drop for MutexGuard<'a, T> {
-    fn drop(&mut self) {
-        self.mutex.unlock();
-    }
+    fn drop(&mut self) { self.mutex.unlock(); }
 }

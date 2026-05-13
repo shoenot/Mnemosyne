@@ -1,9 +1,8 @@
 use core::arch::asm;
 
-use lazy_static::lazy_static;
-
 use crate::{
     arch::x86_64::interrupts::handle,
+    kernel::sync::KernelOnceCell,
     klogln,
 };
 
@@ -46,8 +45,10 @@ unsafe extern "C" {
     static isr_stub_table: [u64; 256];
 }
 
-lazy_static! {
-    static ref IDT: [InterruptDescriptor; 256] = {
+static IDT: KernelOnceCell<[InterruptDescriptor; 256]> = KernelOnceCell::new();
+
+pub(in crate::arch::x86_64) fn init_idt() {
+    IDT.get_or_init(|| {
         let mut idt = [InterruptDescriptor::new(0); 256];
 
         for i in 0..256 {
@@ -57,10 +58,8 @@ lazy_static! {
             }
         }
         idt
-    };
-}
+    });
 
-pub(in crate::arch::x86_64) fn init_idt() {
     let idt_address = &*IDT as *const [InterruptDescriptor; 256] as u64;
 
     let idt_ptr = IDTDescriptor { size: (core::mem::size_of::<[InterruptDescriptor; 256]>() - 1) as u16, address: idt_address };
@@ -71,8 +70,18 @@ pub(in crate::arch::x86_64) fn init_idt() {
             ptr = in(reg) &idt_ptr,
             options(nostack, preserves_flags)
         );
+    }
+}
 
-        asm!("sti", options(nostack, preserves_flags))
+pub fn load_idt() {
+    let idt_ptr =
+        IDTDescriptor { size: (core::mem::size_of::<[InterruptDescriptor; 256]>() - 1) as u16, address: &*IDT as *const _ as u64 };
+    unsafe {
+        asm!(
+            "lidt [{ptr}]",
+            ptr = in(reg) &idt_ptr,
+            options(nostack, preserves_flags)
+        );
     }
 }
 

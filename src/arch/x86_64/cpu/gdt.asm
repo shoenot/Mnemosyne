@@ -22,3 +22,4 @@ load_gdt:
     ltr ax
 
     ret
+

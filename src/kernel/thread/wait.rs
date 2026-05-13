@@ -1,4 +1,5 @@
 use core::ptr::null_mut;
+
 use crate::kernel::thread::ThreadControlBlock;
 
 pub struct WaitQueue {
@@ -7,9 +8,7 @@ pub struct WaitQueue {
 }
 
 impl WaitQueue {
-    pub const fn new() -> Self {
-        Self { head: null_mut(), tail: null_mut() }
-    }
+    pub const fn new() -> Self { Self { head: null_mut(), tail: null_mut() } }
 
     pub fn push(&mut self, tcb: *mut ThreadControlBlock) {
         unsafe {

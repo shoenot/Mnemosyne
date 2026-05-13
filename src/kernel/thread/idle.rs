@@ -1,32 +1,32 @@
+use alloc::alloc::{
+    Layout,
+    alloc,
+};
 use core::{
     arch::asm,
-    sync::atomic::Ordering,
     ptr::copy_nonoverlapping,
-};
-use alloc::alloc::{
-    alloc,
-    Layout,
+    sync::atomic::Ordering,
 };
 
 use crate::{
-    arch::x86_64::{
-        cpu::fpu::*,
-        task::context::*,
-        interrupts::gdt::{
-            KERNEL_CS, 
-            KERNEL_SS,
-        },
-    },
-    kernel::thread::{
+    BOOTSTRAP_ALLOC, arch::x86_64::{
+        cpu::{
+            fpu::*,
+            gdt::{
+                KERNEL_CS,
+                KERNEL_SS,
+            },
+        }, interrupts::enable_interrupts, task::context::*
+    }, kernel::thread::{
         ThreadControlBlock,
         ThreadPriority,
         schedule::RFLAGS_IF,
-    },
-    klogln,
+    }, klogln
 };
 
 fn idle_loop() -> ! {
     unsafe {
+        enable_interrupts();
         klogln!("Nothing to do. Entering idle loop.");
         loop {
             asm!("hlt", options(nomem, nostack));
@@ -38,19 +38,18 @@ pub fn init_idle_thread() -> *mut ThreadControlBlock {
     let stack_size = 4096;
     let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
 
-    let tcb_layout = Layout::new::<ThreadControlBlock>();
-    let stack_layout = Layout::from_size_align(stack_size, 4096).ok().unwrap();
-    let tcb_ptr = unsafe { alloc(tcb_layout) as *mut ThreadControlBlock };
-    let stack_base = unsafe { alloc(stack_layout) as usize };
+    let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
+    let stack_base = BOOTSTRAP_ALLOC.lock().alloc(stack_size, 8) as usize;
 
     let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
-        gen_avx_dummy_fpu().ok().unwrap()
+        let size = FPU_CXT_SIZE.load(Ordering::Relaxed);
+        let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(size, 64) as *mut u8;
+        let def = CLEAN_FPU_CXT.load(Ordering::Relaxed);
+        unsafe { copy_nonoverlapping(def, fpu_ptr, size) };
+        fpu_ptr
     } else {
-        let fpu_layout = Layout::from_size_align(fpu_size, 16).ok().unwrap();
-        let fpu_ptr = unsafe { alloc(fpu_layout) as *mut u8 };
-        let def = CLEAN_LEGACY_FPU_CXT.lock();
-        let default_fpu_ref = def.as_ref().expect("Clean FPU not initialized");
-        unsafe { copy_nonoverlapping(default_fpu_ref as *const LegacyXtCxt, fpu_ptr as *mut LegacyXtCxt, 1) };
+        let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
+        let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(fpu_size, 16);
         fpu_ptr as *mut u8
     };
 

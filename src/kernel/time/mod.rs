@@ -3,70 +3,55 @@ mod clock;
 use core::{
     ptr::null_mut,
     sync::atomic::{
-        AtomicBool, 
-        AtomicPtr, 
-        AtomicUsize, 
-        Ordering
-    }
+        AtomicBool,
+        AtomicPtr,
+        AtomicUsize,
+        Ordering,
+    },
 };
+
+pub use clock::*;
 
 use crate::{
     arch::{
         self,
-        LOCAL_APIC,
         x86_64::{
-            apic::lapic::*, 
-            cpuid::*, 
+            apic::lapic::*,
+            cpu::core::get_core_data,
+            cpuid::*,
             timer::{
-                self, hpet::read_hpet_direct, tsc::read_tsc_direct, *
+                self,
+                hpet::read_hpet_direct,
+                tsc::read_tsc_direct,
+                *,
             },
         },
     },
     kernel::{
         acpi::hpet::get_hpet_base_addr,
-        sync::TicketLock, 
+        sync::TicketLock,
     },
     memory::PAGER,
 };
 
-pub use clock::*;
-
 pub static TIME_SRC_FQ: AtomicUsize = AtomicUsize::new(0);
 pub static LAPIC_FQ: AtomicUsize = AtomicUsize::new(0);
-pub static USE_TSC_DEADLINE: AtomicBool = AtomicBool::new(false);
-pub static TIME_SOURCE: TicketLock<TimeSource> = TicketLock::new(TimeSource::None);
 pub static HPET_BASE_ADDR: AtomicPtr<usize> = AtomicPtr::new(null_mut());
 
+pub type TimeFn = extern "sysv64" fn() -> usize;
+pub static GET_TIME_FN: AtomicPtr<()> = AtomicPtr::new(null_mut());
+
+pub static USE_TSC_DEADLINE: AtomicBool = AtomicBool::new(false);
 const IA32_TSC_DEADLINE: u32 = 0x6E0;
 
-#[derive(Debug)]
 pub enum TimeSource {
     None,
-    HPET(timer::hpet::HPET),
     TSC(timer::tsc::TSC),
+    HPET(timer::hpet::HPET),
 }
 
-impl ClockSource for TimeSource {
-    fn name(&self) -> &'static str {
-        match self {
-            Self::None => "None",
-            Self::HPET(x) => x.name(),
-            Self::TSC(x) => x.name(),
-        }
-    }
+pub static TIME_SOURCE: TicketLock<TimeSource> = TicketLock::new(TimeSource::None);
 
-    fn read_counter(&self) -> usize {
-        match self {
-            Self::None => 0,
-            Self::HPET(x) => x.read_counter(),
-            Self::TSC(x) => x.read_counter(),
-        }
-    }
-
-    fn frequency(&self) -> usize { TIME_SRC_FQ.load(Ordering::Relaxed) }
-}
-
-#[allow(dead_code)]
 pub trait ClockSource {
     fn name(&self) -> &'static str;
     fn read_counter(&self) -> usize;
@@ -74,67 +59,60 @@ pub trait ClockSource {
 }
 
 pub fn init() {
-    arch::init_timers();
     let use_tsc = has_invariant_tsc();
 
-    // try to read fqs straight from cpuid
     let mut tsc_fq = if use_tsc { check_tsc_frequency().unwrap_or(0) } else { 0 };
     let mut lapic_fq = check_apic_frequency().unwrap_or(0);
 
-    // set up the HPET if cpuid failed us or if inv tsc isn't present
     let need_calibration = (use_tsc && tsc_fq == 0) || lapic_fq == 0;
     let need_hpet = need_calibration || !use_tsc;
 
     let mut hpet_opt = None;
-
     if need_hpet {
         if let Some(addr) = get_hpet_base_addr() {
             HPET_BASE_ADDR.store(addr as *mut usize, Ordering::Relaxed);
             let mut pager = PAGER.lock();
-            pager.map_mmio_addr((addr as u64) & !0xFFF);
+            pager.map_mmio_addr((addr as u64) & !0xFFF).unwrap();
             let mut hpet = timer::hpet::HPET { base_addr: 0, frequency: 0, enabled: false };
             hpet.init(addr);
             hpet.enable();
             hpet_opt = Some(hpet);
         } else if !use_tsc {
-            panic!("FATAL: No Invariant TSC and no HPET found. Cannot establish monotonic clock.");
+            panic!("FATAL: No invariant TSC and no HPET found.");
         }
     }
+
+    let core_data = get_core_data();
 
     if need_calibration {
         let tsc = timer::tsc::TSC { frequency: 0 };
 
-        // start tsc (if it exists)
         let start_tsc = if use_tsc && tsc_fq == 0 {
             unsafe {
                 core::arch::asm!("lfence");
+                tsc.read_counter()
             }
-            tsc.read_counter()
         } else {
             0
         };
 
-        // start lapic
-        let lapic = LOCAL_APIC.lock();
-        lapic.timer_setup(35, 0x0FFF_FFFF, TimerMode::OneShot);
-        let start_lapic = lapic.current_count();
+        core_data.apic_mode.timer_setup(35, 0x0FFF_FFFF, TimerMode::OneShot);
+        let start_lapic = core_data.apic_mode.current_count();
 
-        // wait exactly 10ms
         if let Some(hpet) = &hpet_opt {
             let target = hpet.frequency / 100;
             let start = hpet.read_counter();
-            while hpet.read_counter() < start + target {
+            while hpet.read_counter() - start < target {
                 core::hint::spin_loop();
             }
         }
 
-        // stop the timers
-        let end_lapic = lapic.current_count();
+        let end_lapic = core_data.apic_mode.current_count();
         let end_tsc = if use_tsc && tsc_fq == 0 {
             unsafe {
                 core::arch::asm!("lfence");
+                tsc.read_counter()
             }
-            tsc.read_counter()
         } else {
             0
         };
@@ -147,7 +125,6 @@ pub fn init() {
             tsc_fq = (end_tsc.saturating_sub(start_tsc)) * 100;
         }
 
-        // if HPET isn't needed for main clock disable it bc it sucks
         if use_tsc {
             if let Some(mut hpet) = hpet_opt.take() {
                 hpet.disable();
@@ -155,12 +132,13 @@ pub fn init() {
         }
     }
 
+    core_data.apic_mode.stop_timer();
+
     if lapic_fq == 0 {
         panic!("FATAL: Failed to obtain LAPIC frequency.");
     }
     LAPIC_FQ.store(lapic_fq, Ordering::Relaxed);
 
-    // main system clock ( TSC or HPET )
     if use_tsc {
         if tsc_fq == 0 {
             panic!("FATAL: Failed to obtain TSC frequency.");
@@ -176,13 +154,11 @@ pub fn init() {
         GET_TIME_FN.store(read_hpet_direct as *mut (), Ordering::Relaxed);
     }
 
-    // oneshot timer ( TSC Deadline or LAPIC )
-    let lapic = LOCAL_APIC.lock();
     if has_tsc_deadline() {
         USE_TSC_DEADLINE.store(true, Ordering::Relaxed);
-        lapic.timer_setup(35, 0, TimerMode::TscDeadline);
+        core_data.apic_mode.timer_setup(35, 0, TimerMode::TscDeadline);
     } else {
         USE_TSC_DEADLINE.store(false, Ordering::Relaxed);
-        lapic.timer_setup(35, 0, TimerMode::OneShot);
+        core_data.apic_mode.timer_setup(35, 0, TimerMode::OneShot);
     }
 }

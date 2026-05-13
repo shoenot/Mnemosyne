@@ -17,5 +17,3 @@ macro_rules! vklogln {
         }
     };
 }
-
-

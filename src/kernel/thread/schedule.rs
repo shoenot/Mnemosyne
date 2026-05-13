@@ -5,40 +5,31 @@ use alloc::alloc::{
     alloc,
 };
 use core::{
-    mem::size_of,
-    ptr::{
-        copy_nonoverlapping,
-        null_mut,
-    },
-    sync::atomic::{
+    mem::size_of, ptr::{copy_nonoverlapping, null_mut, write_bytes, write_volatile}, sync::atomic::{
         AtomicUsize,
         Ordering,
-    },
+    }
 };
 
 use crate::{
-    arch::x86_64::{
-        cpu::fpu::*,
-        interrupts::gdt::{
-            KERNEL_CS,
-            KERNEL_SS,
+    BOOTSTRAP_ALLOC, arch::x86_64::{
+        cpu::{
+            fpu::*,
+            gdt::{
+                KERNEL_CS,
+                KERNEL_SS,
+            },
         },
         task::context::*,
-    },
-    kernel::{
-        sync::TicketLock,
-        thread::{
-            ThreadError,
-            ThreadControlBlock,
-            ThreadState,
-            switch_threads_avx,
-            switch_threads_legacy,
-            idle::*,
-        },
-    },
+    }, kernel::thread::{
+        ThreadControlBlock,
+        ThreadError,
+        ThreadState,
+        idle::*,
+        switch_threads_avx,
+        switch_threads_legacy,
+    }
 };
-
-pub static SCHEDULER: TicketLock<SchedulerState> = TicketLock::new(SchedulerState::new());
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
 
@@ -61,10 +52,10 @@ pub fn get_new_tid() -> usize { GLOBAL_TID.fetch_add(1, Ordering::Relaxed) }
 
 impl SchedulerState {
     pub const fn new() -> Self {
-        SchedulerState { 
-            ready_queue_head: null_mut(), 
-            ready_queue_tail: null_mut(), 
-            current_thread: null_mut(), 
+        SchedulerState {
+            ready_queue_head: null_mut(),
+            ready_queue_tail: null_mut(),
+            current_thread: null_mut(),
             idle_thread: null_mut(),
             sleep_queue_head: null_mut(),
         }
@@ -72,6 +63,29 @@ impl SchedulerState {
 
     pub fn init(&mut self) {
         self.idle_thread = init_idle_thread();
+
+        let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
+
+        unsafe { write_bytes(tcb_ptr as *mut u8, 0, size_of::<ThreadControlBlock>()) };
+
+        let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
+            let size = FPU_CXT_SIZE.load(Ordering::Relaxed);
+            let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(size, 64) as *mut u8;
+            let def = CLEAN_FPU_CXT.load(Ordering::Relaxed);
+            unsafe { copy_nonoverlapping(def, fpu_ptr, size) };
+            fpu_ptr
+        } else {
+            let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
+            let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(fpu_size, 16);
+            fpu_ptr as *mut u8
+        };
+
+        unsafe {
+            (*tcb_ptr).init(0, 0, fpu_ptr);
+            (*tcb_ptr).state = ThreadState::Running;
+        }
+
+        self.current_thread = tcb_ptr;
     }
 
     pub fn push(&mut self, thread: *mut ThreadControlBlock) {
@@ -103,7 +117,7 @@ impl SchedulerState {
         }
     }
 
-    pub fn spawn(&mut self, entry_point: usize) -> Result<(), ThreadError> {
+    pub fn spawn(&mut self, entry_point: usize, arg: usize) -> Result<(), ThreadError> {
         let stack_size = 4096 * 4;
         let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
         // alloc memory for structs
@@ -112,6 +126,15 @@ impl SchedulerState {
 
         let tcb_ptr = unsafe { alloc(tcb_layout) as *mut ThreadControlBlock };
         let stack_base = unsafe { alloc(stack_layout) as usize };
+
+        unsafe {
+            let stack_ptr_u64 = stack_base as *mut u64;
+            for i in 0..(stack_size / 8) {
+                write_volatile(stack_ptr_u64.add(i), 0);
+            }
+            
+            write_volatile(tcb_ptr as *mut u8, 0);
+        }
 
         // init extended context state
         let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
@@ -136,6 +159,7 @@ impl SchedulerState {
         context.code_segment = KERNEL_CS;
         context.stack_segment = KERNEL_SS;
         context.cpu_flags = RFLAGS_IF;
+        context.rdi = arg;
 
         let switch_addr = context_addr - size_of::<SwitchContext>();
         let switch_context = unsafe { &mut *(switch_addr as *mut SwitchContext) };
@@ -241,7 +265,7 @@ impl SchedulerState {
             }
 
             let mut current = self.sleep_queue_head;
-            while!(*current).next.is_null() && (*(*current).next).wake_time <= (*tcb).wake_time {
+            while !(*current).next.is_null() && (*(*current).next).wake_time <= (*tcb).wake_time {
                 current = (*current).next;
             }
 
@@ -250,21 +274,12 @@ impl SchedulerState {
         }
     }
 
-    pub fn get_current_thread(&self) -> *mut ThreadControlBlock {
-        self.current_thread
-    }
+    pub fn get_current_thread(&self) -> *mut ThreadControlBlock { self.current_thread }
 
     pub fn unblock(&mut self, thread: *mut ThreadControlBlock) {
         unsafe {
             (*thread).state = ThreadState::Ready;
         }
         self.push(thread);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn unlock_scheduler() {
-    unsafe {
-        SCHEDULER.force_unlock();
     }
 }

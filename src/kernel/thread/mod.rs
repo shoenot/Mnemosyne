@@ -1,8 +1,7 @@
+pub mod idle;
 pub mod schedule;
 pub mod tcb;
-pub mod idle;
 pub mod wait;
-pub mod cpu;
 
 use core::{
     alloc::LayoutError,

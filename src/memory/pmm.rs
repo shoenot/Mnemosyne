@@ -1,20 +1,12 @@
 use core::ops::Deref;
 
-use lazy_static::lazy_static;
 use limine::memmap::*;
 
 use crate::{
     HHDM_REQUEST,
-    MEMMAP_REQUEST, kernel::sync::KernelOnceCell,
+    MEMMAP_REQUEST,
+    kernel::sync::KernelOnceCell,
 };
-
-lazy_static! {
-    pub static ref HHDMOFFSET: usize = if let Some(hhdmresp) = HHDM_REQUEST.response() {
-        hhdmresp.deref().offset as usize
-    } else {
-        panic!("COULD NOT GET HHDM OFFSET FROM LIMINE")
-    };
-}
 
 pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
@@ -78,9 +70,7 @@ impl Allocator {
     pub const fn new() -> Self { Allocator { normal_head: 0, huge_head: 0, highest_addr: 0, free_4k: 0, free_2m: 0 } }
 
     pub fn init(&mut self) {
-        HHDMOFFSET.get_or_init(|| {
-            HHDM_REQUEST.response().expect("Failed to get HHDM offset from Limine").offset as usize
-        });
+        HHDMOFFSET.get_or_init(|| HHDM_REQUEST.response().expect("Failed to get HHDM offset from Limine").offset as usize);
 
         let mem_map = if let Some(memmap_response) = MEMMAP_REQUEST.response() {
             memmap_response.deref().entries()

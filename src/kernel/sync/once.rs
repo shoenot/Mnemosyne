@@ -1,13 +1,17 @@
 use core::{
-    cell::UnsafeCell, hint::spin_loop, ops::Deref, sync::atomic::{
+    cell::UnsafeCell,
+    hint::spin_loop,
+    mem::MaybeUninit,
+    ops::Deref,
+    sync::atomic::{
         AtomicUsize,
         Ordering,
-    }
+    },
 };
 
 pub struct KernelOnceCell<T> {
     state: AtomicUsize,
-    value: UnsafeCell<Option<T>>,
+    value: UnsafeCell<MaybeUninit<T>>,
 }
 
 const UNINITIATED: usize = 0;
@@ -17,30 +21,29 @@ const READY: usize = 2;
 unsafe impl<T: Sync + Send> Sync for KernelOnceCell<T> {}
 
 impl<T> KernelOnceCell<T> {
-    pub const fn new() -> Self {
-        Self {
-            state: AtomicUsize::new(UNINITIATED),
-            value: UnsafeCell::new(None),
-        }
-    }
+    pub const fn new() -> Self { Self { state: AtomicUsize::new(UNINITIATED), value: UnsafeCell::new(MaybeUninit::uninit()) } }
 
     pub fn get_or_init<F>(&self, f: F) -> &T
-    where F: FnOnce() -> T {
+    where
+        F: FnOnce() -> T,
+    {
         if self.state.load(Ordering::Acquire) == READY {
-            return unsafe { (*self.value.get()).as_ref().unwrap_unchecked() }
+            return unsafe { (*self.value.get()).assume_init_ref() };
         }
 
         loop {
-            match self.state.compare_exchange(UNINITIATED, RUNNING, Ordering::Acquire, Ordering::Relaxed) {
+            match self.state.compare_exchange(UNINITIATED, RUNNING, Ordering::Acquire, Ordering::Acquire) {
                 Ok(_) => {
-                    unsafe { *self.value.get() = Some(f()) };
+                    unsafe { (*self.value.get()).write(f()) };
                     self.state.store(READY, Ordering::Release);
-                    return unsafe { (*self.value.get()).as_ref().unwrap_unchecked() };
-                },
-                Err(s) => if s == READY {
-                    // someone else initiated it in the middle
-                    return unsafe { (*self.value.get()).as_ref().unwrap_unchecked() };
-                },
+                    return unsafe { (*self.value.get()).assume_init_ref() };
+                }
+                Err(s) => {
+                    if s == READY {
+                        // someone else initiated it in the middle
+                        return unsafe { (*self.value.get()).assume_init_ref() };
+                    }
+                }
                 _ => spin_loop(),
             }
         }
@@ -49,7 +52,5 @@ impl<T> KernelOnceCell<T> {
 
 impl<T> Deref for KernelOnceCell<T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target {
-        unsafe { &(*self.value.get()).expect("Derefing an uninitialized KernelOnceCell") } 
-    }
+    fn deref(&self) -> &Self::Target { unsafe { &(*self.value.get()).assume_init_ref() } }
 }

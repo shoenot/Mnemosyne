@@ -17,9 +17,9 @@ use core::{
 };
 
 use crate::arch::x86_64::interrupts::{
-    enable_interrupts,
     disable_interrupts,
-    interrupts_enabled
+    enable_interrupts,
+    interrupts_enabled,
 };
 
 pub trait RawLock {

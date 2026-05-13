@@ -1,14 +1,11 @@
 use crate::{
+    arch::x86_64::cpu::core::get_core_data,
     hcf,
-    klogln,
     kernel::{
-        SCHEDULER,
         sync::Mutex,
-        time::{
-            arm_sleep_ns,
-            sleep,
-        },
+        thread::ThreadState,
     },
+    klogln,
 };
 
 static SHARED_COUNTER: Mutex<usize> = Mutex::new(0);
@@ -17,13 +14,18 @@ pub fn run_demo() -> ! {
     let tt1 = test_thread_1 as *const ();
     let tt2 = test_thread_2 as *const ();
 
+    let scheduler = &mut get_core_data().scheduler;
 
-    SCHEDULER.lock().spawn(tt1 as usize).unwrap();
-    SCHEDULER.lock().spawn(tt2 as usize).unwrap();
+    scheduler.spawn(tt1 as usize, 0).unwrap();
+    scheduler.spawn(tt2 as usize, 0).unwrap();
 
-    arm_sleep_ns(10_000_000);
+    let current_thread = scheduler.get_current_thread();
 
-    SCHEDULER.lock().schedule();
+    unsafe {
+        (*current_thread).state = ThreadState::Terminated;
+    }
+
+    scheduler.schedule();
     hcf();
 }
 
@@ -40,8 +42,7 @@ fn test_thread_1() -> ! {
             klogln!("T1: Releasing lock...");
         }
 
-        SCHEDULER.lock().schedule();
-
+        get_core_data().scheduler.schedule();
     }
 }
 
@@ -58,7 +59,6 @@ fn test_thread_2() -> ! {
             klogln!("T2: Releasing lock...");
         }
 
-        SCHEDULER.lock().schedule();
-
+        get_core_data().scheduler.schedule();
     }
 }

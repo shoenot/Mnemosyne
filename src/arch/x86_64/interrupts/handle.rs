@@ -1,63 +1,59 @@
-use core::{arch::asm, ptr::null_mut};
+use core::arch::asm;
 
 use crate::{
-    memory::GLOBAL_VMM,
     arch::x86_64::{
-        apic::lapic::send_apic_eoi,
+        apic::lapic::{
+            ApicDriver,
+            ApicMode,
+        },
+        cpu::core::get_core_data,
         interrupts::idt::InterruptStackFrame,
     },
     kernel::{
-        SCHEDULER,
-        thread::tcb::ThreadState, 
+        thread::{
+            schedule::DEFAULT_QUANTUM,
+            tcb::ThreadState,
+        },
         time::{
-            arm_sleep_ns, 
-            get_time
-        }
+            arm_sleep_ns, arm_sleep_ticks, get_time
+        },
     },
     klogln,
+    memory::GLOBAL_VMM,
 };
 
-// HELPERS
-
-fn read_cr2() -> u64 {
+pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut InterruptStackFrame) {
     let cr2: u64;
     unsafe {
-        asm!("mov {0}, cr2", 
-            out(reg) cr2, 
-            options(nostack, preserves_flags));
-    };
-    cr2
-}
+        asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
+    }
 
-// HANDLERS
-
-// Interrupt 13
-pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &InterruptStackFrame) {
-    panic!("General Protection Fault.\nError Code: {}\nInstruction Pointer: {:#X}\n", frame.error_code, frame.instruction_pointer);
-}
-
-// Interrupt 14
-pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &InterruptStackFrame) {
-    let addr = read_cr2() as usize;
-    let error_code = frame.error_code as usize;
     let mut vmm = GLOBAL_VMM.lock();
-
-    let fixed = vmm.handle_page_fault(addr, error_code);
-
-    if !fixed {
-        panic!("Page Fault Exception.\nAt address: {:#X}\nError Code: {:#b}\nStack Frame:\n{:#?}", addr, error_code, frame)
+    if !vmm.handle_page_fault(cr2 as usize, frame.error_code as usize) {
+        panic!("FATAL: Unhandled Page Fault!");
     }
 }
 
-pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &InterruptStackFrame) {
+pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &mut InterruptStackFrame) {
+    klogln!("General Protection Fault.\nError Code: {:#X}\nStack Frame:\n{:#?}", frame.error_code, frame);
+    crate::hcf();
+}
+
+pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &mut InterruptStackFrame) {
     klogln!("Unexpected Interrupt.\nStack Frame:\n{:#?}", frame);
 }
 
 pub(in crate::arch::x86_64::interrupts) fn lapic_interrupt_handler() {
+    let core_data = get_core_data();
     let current_time = get_time();
-    send_apic_eoi();
 
-    let mut sched = SCHEDULER.lock();
+    match &core_data.apic_mode {
+        ApicMode::XApic(apic) => apic.eoi(),
+        ApicMode::X2Apic(apic) => apic.eoi(),
+    }
+
+    let sched = &mut core_data.scheduler;
+
     unsafe {
         while !sched.sleep_queue_head.is_null() {
             let sleeping_thread = sched.sleep_queue_head;
@@ -67,21 +63,22 @@ pub(in crate::arch::x86_64::interrupts) fn lapic_interrupt_handler() {
             }
 
             sched.sleep_queue_head = (*sleeping_thread).next;
-            (*sleeping_thread).next = null_mut();
+            (*sleeping_thread).next = core::ptr::null_mut();
 
             (*sleeping_thread).state = ThreadState::Ready;
             sched.push(sleeping_thread);
         }
     }
+
     if !sched.sleep_queue_head.is_null() {
-        let next_wake = unsafe {
-            (*sched.sleep_queue_head).wake_time 
-        };
-        let delta_ns = next_wake.saturating_sub(get_time());
-        arm_sleep_ns(delta_ns);
+        let next_wake = unsafe { (*sched.sleep_queue_head).wake_time };
+
+        let delta_ticks = next_wake.saturating_sub(current_time);
+
+        arm_sleep_ticks(delta_ticks);
     } else {
-        arm_sleep_ns(1_000_000_000);
+        arm_sleep_ns(DEFAULT_QUANTUM);
     }
+
     sched.schedule();
-    drop(sched);
 }

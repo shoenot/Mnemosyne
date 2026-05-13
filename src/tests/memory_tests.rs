@@ -16,10 +16,10 @@ use core::{
 };
 
 use crate::{
-    vklog,
-    vklogln,
     klog,
     klogln,
+    vklog,
+    vklogln,
 };
 
 pub fn test_kmalloc(print: bool) {

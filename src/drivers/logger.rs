@@ -3,9 +3,9 @@ use core::{
         self,
         Write,
     },
+    mem::MaybeUninit,
 };
 
-use lazy_static::lazy_static;
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 
@@ -22,10 +22,16 @@ use super::{
 };
 use crate::{
     boot::FRAMEBUFFER_REQUEST,
-    kernel::sync::TicketLock,
+    kernel::sync::{
+        KernelOnceCell,
+        TicketLock,
+    },
 };
 
 const FONT_DATA: &[u8] = include_bytes!("../../build_deps/zap-ext-light16.psf");
+static FONT: KernelOnceCell<Psf<'static>> = KernelOnceCell::new();
+pub static LOGGER: TicketLock<Logger> =
+    TicketLock::new(Logger { graphics_writer: MaybeUninit::uninit(), serial_writer: MaybeUninit::uninit() });
 
 fn load_font() -> Psf<'static> {
     match Psf::parse(FONT_DATA) {
@@ -43,33 +49,33 @@ fn get_framebuffer() -> &'static Framebuffer {
     panic!("CANNOT GET FRAMEBUFFER");
 }
 
-lazy_static! {
-    static ref FONT: Psf<'static> = load_font();
-    pub static ref LOGGER: TicketLock<Logger> = TicketLock::new(Logger::new());
-}
-
 pub struct Logger {
-    pub graphics_writer: GraphicsWriter,
-    pub serial_writer: SerialWriter,
+    pub graphics_writer: MaybeUninit<GraphicsWriter>,
+    pub serial_writer: MaybeUninit<SerialWriter>,
 }
 
 impl Logger {
-    pub fn new() -> Self {
+    pub fn init(&mut self) {
         init_serial();
         log_to_serial("\x1B[2J\x1B[H");
-        Self {
-            graphics_writer: GraphicsWriter { current_line: 0, current_offset: 0, font: &FONT, fb: SyncFramebuffer(get_framebuffer()) },
-            serial_writer: SerialWriter {},
-        }
+        self.graphics_writer.write(GraphicsWriter {
+            current_line: 0,
+            current_offset: 0,
+            font: FONT.get_or_init(|| load_font()),
+            fb: SyncFramebuffer(get_framebuffer()),
+        });
+        self.serial_writer.write(SerialWriter {});
     }
 }
 
 impl Write for Logger {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         // Write to both outputs
-        self.graphics_writer.write_str(s)?;
-        self.serial_writer.write_str(s)?;
-        Ok(())
+        unsafe {
+            self.graphics_writer.assume_init_mut().write_str(s)?;
+            self.serial_writer.assume_init_mut().write_str(s)?;
+            Ok(())
+        }
     }
 }
 

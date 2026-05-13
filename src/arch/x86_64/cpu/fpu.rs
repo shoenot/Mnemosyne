@@ -15,14 +15,13 @@ use core::{
 };
 
 use crate::{
-    arch::x86_64::cpuid::{
+    BOOTSTRAP_ALLOC, arch::x86_64::cpuid::{
         check_xsave_support,
         get_xsave_details,
-    },
-    kernel::{
+    }, kernel::{
         sync::TicketLock,
         thread::ThreadError,
-    },
+    }
 };
 
 pub(crate) static CLEAN_FPU_CXT: AtomicPtr<u8> = AtomicPtr::new(null_mut() as *mut u8);
@@ -80,7 +79,7 @@ pub(crate) struct XtCxtFixed {
 }
 
 unsafe extern "sysv64" {
-    fn init_xsave();
+    pub fn init_xsave();
     fn init_clean_fpu_state(ptr: *mut u8);
     pub fn init_cr4();
 }
@@ -94,8 +93,7 @@ fn init_default_fpu_avx_cxt() -> Option<()> {
                 init_xsave();
                 let (_, ebx, _) = get_xsave_details();
                 FPU_CXT_SIZE.store(ebx, Ordering::Relaxed);
-                let clean_fpu_cxt_layout = Layout::from_size_align(ebx, 64).ok()?;
-                let clean_fpu_cxt = alloc(clean_fpu_cxt_layout) as *mut u8;
+                let clean_fpu_cxt = BOOTSTRAP_ALLOC.lock().alloc(ebx, 64) as *mut u8;
                 init_clean_fpu_state(clean_fpu_cxt);
                 CLEAN_FPU_CXT.store(clean_fpu_cxt, Ordering::Relaxed);
                 return Some(());

@@ -4,10 +4,8 @@ use core::ptr::{
 };
 
 use crate::{
+    kernel::acpi,
     memory::HHDMOFFSET,
-    kernel::{
-        acpi,
-    },
 };
 
 const IOREGSEL_OFFSET: usize = 0x00;

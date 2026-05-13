@@ -7,13 +7,13 @@ section .text
 init_xsave:
     ; enable osxsave in cr4
     mov rax, cr4
-    bts rax, 18
+    or rax, (1 << 18)
     mov cr4, rax
 
     ; configure xcr0
     xor ecx, ecx  ; ecx = 0 specifies xcr0
     mov eax, 0x7  ; enables x87, SSE, and AVX
-    mov edx, 0x0
+    xor edx, edx
     xsetbv        ; writes eax:edx to xcr[ecx]
 
     ret

@@ -1,8 +1,8 @@
 use core::slice::from_raw_parts;
 
 use crate::{
-    memory::HHDMOFFSET,
     boot::RSDP_REQUEST,
+    memory::HHDMOFFSET,
 };
 
 #[repr(C, packed)]

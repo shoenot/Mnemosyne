@@ -1,4 +1,3 @@
-pub(crate) mod gdt;
 pub(crate) mod handle;
 pub(crate) mod idt;
 
@@ -29,4 +28,3 @@ pub(crate) fn interrupts_enabled() -> bool {
     }
     (rflags & (1 << 9)) != 0
 }
-

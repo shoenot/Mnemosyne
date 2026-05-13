@@ -7,7 +7,7 @@ BIN_NAME    := shoes
 KARCH       := x86_64
 TARGET_NAME := x86_64-unknown-none
 IMAGE_NAME  := $(BIN_NAME)-$(KARCH)
-QEMUFLAGS   := -smp 2 -m 2G -cpu host,migratable=no,+invtsc
+QEMUFLAGS   := -smp 4 -m 2G -cpu host,migratable=no,+invtsc
 
 # --- Toolchain ---
 AS := nasm
@@ -35,7 +35,7 @@ run-debug: build_deps/edk2-ovmf/ovmf-code-x86_64.fd build/$(IMAGE_NAME).iso
 		-drive if=pflash,unit=0,format=raw,file=build_deps/edk2-ovmf/ovmf-code-x86_64.fd,readonly=on \
 		-cdrom build/$(IMAGE_NAME).iso \
 		-accel kvm \
-		$(QEMUFLAGS) -d int -no-reboot -M smm=off \
+		$(QEMUFLAGS) -no-reboot -no-shutdown -d int -D qemu_idt.log -s -S \
 		-serial stdio 
 
 .PHONY: run-bios
@@ -47,9 +47,9 @@ run-bios: build/$(IMAGE_NAME).iso
 		$(QEMUFLAGS)
 
 # --- Assembly Build Step ---
-build/gdt.o: src/arch/x86_64/interrupts/gdt.asm
+build/gdt.o: src/arch/x86_64/cpu/gdt.asm
 	mkdir -p build/
-	$(AS) -f elf64 src/arch/x86_64/interrupts/gdt.asm -o build/gdt.o
+	$(AS) -f elf64 src/arch/x86_64/cpu/gdt.asm -o build/gdt.o
 	
 build/idt.o: src/arch/x86_64/interrupts/idt.asm
 	mkdir -p build/

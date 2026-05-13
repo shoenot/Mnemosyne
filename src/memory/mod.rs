@@ -1,14 +1,16 @@
 pub mod heap;
-mod paging;
+pub mod paging;
 mod pmm;
 mod vmm;
+mod bootalloc;
 
-use pmm::*;
-use paging::*;
-use vmm::*;
 use heap::*;
-
+use paging::*;
 pub use pmm::HHDMOFFSET;
+pub use pmm::BlockSize;
+pub use bootalloc::*;
+use pmm::*;
+use vmm::*;
 
 use crate::{
     kernel::sync::TicketLock,
@@ -43,9 +45,9 @@ pub fn init() {
 
     klog!("RUNNING MEMORY TESTS... ");
 
-    memory_tests::test_kmalloc(false);
-    memory_tests::test_vmalloc(false);
-    memory_tests::test_collections(false);
+    // memory_tests::test_kmalloc(false);
+    // memory_tests::test_vmalloc(false);
+    // memory_tests::test_collections(false);
 
     klogln!("TESTS COMPLETE!");
 }

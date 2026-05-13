@@ -25,7 +25,7 @@ pub struct ThreadControlBlock {
     pub thread_id: usize,
     pub state: ThreadState,
     pub priority: ThreadPriority,
-    pub wake_time: usize, 
+    pub wake_time: usize,
     pub total_runtime: usize,
     pub stack_ptr: usize,
     pub stack_base: usize,
@@ -48,13 +48,11 @@ impl ThreadControlBlock {
 
 unsafe extern "sysv64" {
     pub fn switch_threads_avx(
-        old_stack_ptr: *mut usize, new_stack_ptr: usize, 
-        old_extended_context: *mut u8, new_extended_context: *const u8,
+        old_stack_ptr: *mut usize, new_stack_ptr: usize, old_extended_context: *mut u8, new_extended_context: *const u8,
     );
 
     pub fn switch_threads_legacy(
-        old_stack_ptr: *mut usize, new_stack_ptr: usize, 
-        old_extended_context: *mut u8, new_extended_context: *const u8,
+        old_stack_ptr: *mut usize, new_stack_ptr: usize, old_extended_context: *mut u8, new_extended_context: *const u8,
     );
 }
 

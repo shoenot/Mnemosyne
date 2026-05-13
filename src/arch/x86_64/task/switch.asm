@@ -1,7 +1,6 @@
 global switch_threads_legacy
 global switch_threads_avx
 global thread_entry_stub
-extern unlock_scheduler 
 
 section .text
 
@@ -76,8 +75,6 @@ switch_threads_avx:
     ret
 
 thread_entry_stub:
-    call unlock_scheduler
-
     pop rax
     pop rbx
     pop rcx
