@@ -1,9 +1,12 @@
 #![allow(dead_code)]
 
+use core::ptr::{
+    copy,
+    write_bytes,
+};
+
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
-use core::ptr::copy;
-use core::ptr::write_bytes;
 
 pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
     let pixels_per_row = fb.pitch / 4;
@@ -95,7 +98,7 @@ impl GraphicsWriter {
 
         let pixel_lines = active_height - 16;
         let block_size = pixel_lines as u64 * pitch as u64;
-        
+
         let src = (fb_base_ptr as u64 + (16 * pitch as u64)) as *const u8;
         unsafe {
             copy(src, fb_base_ptr, block_size as usize);

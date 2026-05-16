@@ -1,10 +1,11 @@
 mod clock;
+pub mod datetime;
+pub mod callout;
 
 use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicBool,
     AtomicPtr,
-    AtomicUsize,
     Ordering,
 };
 
@@ -17,11 +18,14 @@ use crate::arch::x86_64::timer;
 use crate::arch::x86_64::timer::hpet::read_hpet_direct;
 use crate::arch::x86_64::timer::tsc::read_tsc_direct;
 use crate::kernel::acpi::hpet::get_hpet_base_addr;
-use crate::kernel::sync::TicketLock;
+use crate::kernel::sync::{
+    KernelOnceCell,
+    TicketLock,
+};
 use crate::memory::PAGER;
 
-pub static TIME_SRC_FQ: AtomicUsize = AtomicUsize::new(0);
-pub static LAPIC_FQ: AtomicUsize = AtomicUsize::new(0);
+pub static TIME_SRC_FQ: KernelOnceCell<usize> = KernelOnceCell::new();
+pub static LAPIC_FQ: KernelOnceCell<usize> = KernelOnceCell::new();
 pub static HPET_BASE_ADDR: AtomicPtr<usize> = AtomicPtr::new(null_mut());
 
 pub type TimeFn = extern "sysv64" fn() -> usize;
@@ -123,19 +127,19 @@ pub fn init() {
     if lapic_fq == 0 {
         panic!("FATAL: Failed to obtain LAPIC frequency.");
     }
-    LAPIC_FQ.store(lapic_fq, Ordering::Relaxed);
+    LAPIC_FQ.get_or_init(|| lapic_fq);
 
     if use_tsc {
         if tsc_fq == 0 {
             panic!("FATAL: Failed to obtain TSC frequency.");
         }
         let tsc = timer::tsc::TSC { frequency: tsc_fq };
-        TIME_SRC_FQ.store(tsc_fq, Ordering::Relaxed);
+        TIME_SRC_FQ.get_or_init(|| tsc_fq);
         *TIME_SOURCE.lock() = TimeSource::TSC(tsc);
         GET_TIME_FN.store(read_tsc_direct as *mut (), Ordering::Relaxed);
     } else {
         let hpet = hpet_opt.expect("FATAL: Hardware requirements not met (Missing TSC and HPET)");
-        TIME_SRC_FQ.store(hpet.frequency, Ordering::Relaxed);
+        TIME_SRC_FQ.get_or_init(|| hpet.frequency);
         *TIME_SOURCE.lock() = TimeSource::HPET(hpet);
         GET_TIME_FN.store(read_hpet_direct as *mut (), Ordering::Relaxed);
     }

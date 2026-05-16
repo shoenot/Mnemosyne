@@ -11,6 +11,8 @@ use crate::kernel::sync::{
     TicketLock,
 };
 use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::dispatch::spawn_kernel_thread;
+use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::sleep;
 use crate::klogln;
 
@@ -25,9 +27,9 @@ pub fn run_demo() -> ! {
     let scheduler = &mut get_core_data().scheduler;
 
     let tt1 = test_thread as *const ();
-    scheduler.spawn(tt1 as usize, 1).unwrap();
+    spawn_kernel_thread(tt1 as usize, 1, ThreadPriority::MEDIUM);
     let tt2 = test_thread as *const ();
-    scheduler.spawn(tt2 as usize, 2).unwrap();
+    spawn_kernel_thread(tt2 as usize, 2, ThreadPriority::MEDIUM);
 
     scheduler.terminate();
     unreachable!()

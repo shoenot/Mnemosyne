@@ -46,7 +46,7 @@ pub unsafe fn inl(port: u16) -> u32 {
 
 #[inline(always)]
 pub unsafe fn read_cmos(index: u8) -> u8 {
-    let idx_nmi =  index | 0x80;
+    let idx_nmi = index | 0x80;
     unsafe {
         outb(0x70, idx_nmi);
         inb(0x71)

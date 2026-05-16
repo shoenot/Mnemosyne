@@ -1,15 +1,20 @@
 use core::ptr::null_mut;
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
 use crate::impl_queue_methods;
 use crate::kernel::thread::ThreadControlBlock;
 
 pub struct WaitQueue {
+    pub queue_length: AtomicUsize,
     head: *mut ThreadControlBlock,
     tail: *mut ThreadControlBlock,
 }
 
 impl WaitQueue {
-    pub const fn new() -> Self { Self { head: null_mut(), tail: null_mut() } }
+    pub const fn new() -> Self { Self { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() } }
 }
 
 impl_queue_methods!(WaitQueue, ThreadControlBlock, head, tail);

@@ -12,8 +12,8 @@ use crate::arch::x86_64::task::context::*;
 use crate::kernel::thread::schedule::RFLAGS_IF;
 use crate::kernel::thread::{
     ThreadControlBlock,
-    ThreadPriority,
 };
+use crate::kernel::thread::priority::ThreadPriority;
 use crate::{
     BOOTSTRAP_ALLOC,
     klogln,
@@ -24,12 +24,12 @@ fn idle_loop() -> ! {
         enable_interrupts();
         klogln!("Nothing to do. Entering idle loop.");
         loop {
-            asm!("hlt", options(nomem, nostack));
+            asm!("sti; hlt", options(nomem, nostack));
         }
     }
 }
 
-pub fn init_idle_thread() -> *mut ThreadControlBlock {
+pub fn init_idle_thread(core_logical_id: usize) -> *mut ThreadControlBlock {
     let stack_size = 4096;
 
     let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
@@ -72,8 +72,8 @@ pub fn init_idle_thread() -> *mut ThreadControlBlock {
 
     // init TCB
     unsafe {
-        (*tcb_ptr).init(switch_addr, stack_base, fpu_ptr);
-        (*tcb_ptr).priority = ThreadPriority::Idle;
+        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, core_logical_id, ThreadPriority::IDLE);
+        (*tcb_ptr).priority = ThreadPriority::IDLE;
     }
 
     tcb_ptr

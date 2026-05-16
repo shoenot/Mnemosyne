@@ -1,25 +1,34 @@
 use core::arch::asm;
 
+use alloc::collections::binary_heap::BinaryHeap;
+
 use super::gdt::*;
 use crate::BOOTSTRAP_ALLOC;
 use crate::arch::x86_64::apic::lapic::ApicMode;
 use crate::kernel::sync::TicketLock;
+use crate::kernel::thread::ThreadControlBlock;
+use crate::kernel::thread::dispatch::create_tcb;
+use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::schedule::SchedulerState;
 use crate::kernel::thread::workqueue::WorkQueue;
+use crate::kernel::time::callout::{Callout, timer_daemon};
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
 #[repr(C)]
 pub struct CPULocalData {
     pub self_ptr: *mut CPULocalData,
+    pub logical_id: usize,
     pub lapic_id: usize,
     pub core_gdt: CPULocalGDT,
     pub apic_mode: ApicMode,
     pub scheduler: SchedulerState,
     pub work_queue: TicketLock<WorkQueue>,
+    pub callout_queue: TicketLock<BinaryHeap<Callout>>,
+    pub timer_daemon_tcb: *mut ThreadControlBlock
 }
 
-pub fn init_core_data(lapic_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {
+pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {
     unsafe {
         let data_addr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<CPULocalData>(), 8);
         let data_ptr = data_addr as *mut CPULocalData;
@@ -28,10 +37,14 @@ pub fn init_core_data(lapic_id: usize, apic_mode: ApicMode) -> *mut CPULocalData
         init_core_gdt(lgdt_ptr);
 
         (*data_ptr).self_ptr = data_ptr;
+        (*data_ptr).logical_id = logical_id;
         (*data_ptr).lapic_id = lapic_id;
         (*data_ptr).apic_mode = apic_mode;
         (*data_ptr).scheduler = SchedulerState::new();
-        (*data_ptr).scheduler.init();
+        (*data_ptr).scheduler.init(logical_id);
+        (*data_ptr).callout_queue = TicketLock::new(BinaryHeap::new());
+        (*data_ptr).timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH).unwrap();
+        (*data_ptr).scheduler.push((*data_ptr).timer_daemon_tcb);
 
         data_ptr
     }

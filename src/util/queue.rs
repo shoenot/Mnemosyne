@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 #[macro_export]
 macro_rules! impl_queue_methods {
     ($queue_type:ty, $item_type:ty, $head_field:ident, $tail_field:ident) => {
@@ -15,6 +17,7 @@ macro_rules! impl_queue_methods {
                         (*self.$tail_field).next = item;
                         self.$tail_field = item;
                     }
+                    self.queue_length.fetch_add(1, Ordering::Relaxed);
                 }
             }
 
@@ -30,6 +33,7 @@ macro_rules! impl_queue_methods {
                         self.$tail_field = null_mut();
                     }
                     (*ret).next = null_mut();
+                    self.queue_length.fetch_sub(1, Ordering::Relaxed);
                     ret
                 }
             }

@@ -1,8 +1,8 @@
 use core::sync::atomic::AtomicPtr;
 
 pub(crate) mod hpet;
-pub(crate) mod tsc;
 mod realtime;
+pub(crate) mod tsc;
 
 pub use realtime::read_rtc;
 

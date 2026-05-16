@@ -19,7 +19,7 @@ use crate::arch::x86_64::cpu::core::{
 use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::interrupts::idt::load_idt;
 use crate::kernel::time::USE_TSC_DEADLINE;
-use crate::klogln;
+use crate::{klogln, terminate_thread};
 use crate::memory::paging::load_cr3;
 
 pub static BSP_CR3: AtomicU64 = AtomicU64::new(0);
@@ -51,6 +51,5 @@ pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
 
     klogln!("Started {}", get_core_data().lapic_id);
     enable_interrupts();
-    core_data.scheduler.terminate();
-    unreachable!();
+    terminate_thread!();
 }

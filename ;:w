@@ -35,7 +35,6 @@ use memory::{
 
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
-use crate::kernel::time::callout::{timer_daemon};
 use crate::kernel::time::datetime::epoch_to_datetime;
 
 pub static BOOTSTRAP_ALLOC: TicketLock<BumpAllocator> = TicketLock::new(BumpAllocator::new());

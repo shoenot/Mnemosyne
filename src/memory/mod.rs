@@ -15,7 +15,6 @@ pub use pmm::{
 use vmm::*;
 
 use crate::kernel::sync::TicketLock;
-use crate::tests::memory_tests;
 use crate::{
     klog,
     klogln,

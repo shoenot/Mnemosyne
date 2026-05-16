@@ -1,15 +1,10 @@
 #![allow(dead_code)]
 
-use alloc::alloc::{
-    Layout,
-    alloc,
-};
 use core::mem::size_of;
 use core::ptr::{
     copy_nonoverlapping,
     null_mut,
     write_bytes,
-    write_volatile,
 };
 use core::sync::atomic::{
     AtomicUsize,
@@ -18,11 +13,11 @@ use core::sync::atomic::{
 
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::interrupts::disable_interrupts;
-use crate::arch::x86_64::task::context::*;
+use crate::kernel::sync::TicketLock;
 use crate::kernel::thread::idle::*;
+use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::{
     ThreadControlBlock,
-    ThreadError,
     ThreadState,
     switch_threads_avx,
     switch_threads_legacy,
@@ -39,12 +34,31 @@ pub const RFLAGS_IF: u64 = 0x202; // bit 9 is interrupt enable and bit 1 is alwa
 
 pub const DEFAULT_QUANTUM: usize = 10_000_000;
 
+pub static GRAVEYARD: TicketLock<TCBQueue> = TicketLock::new(TCBQueue { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() });
+
+pub struct TCBQueue {
+    pub queue_length: AtomicUsize,
+    head: *mut ThreadControlBlock,
+    tail: *mut ThreadControlBlock,
+}
+
+unsafe impl Send for TCBQueue {}
+
+impl_queue_methods!(TCBQueue, ThreadControlBlock, head, tail);
+
 pub struct SchedulerState {
-    pub ready_queue_head: *mut ThreadControlBlock,
-    pub ready_queue_tail: *mut ThreadControlBlock,
-    pub current_thread: *mut ThreadControlBlock,
-    pub idle_thread: *mut ThreadControlBlock,
+    pub core_logical_id: usize,
+
+    pub queue_length: AtomicUsize,
+    pub ready_queue_heads: [*mut ThreadControlBlock; 32],
+    pub ready_queue_tails: [*mut ThreadControlBlock; 32],
+    pub active_priorities: u32,
+
     pub sleep_queue_head: *mut ThreadControlBlock,
+    pub mailbox: TicketLock<TCBQueue>,
+    pub idle_thread: *mut ThreadControlBlock,
+
+    pub current_thread: *mut ThreadControlBlock,
 }
 
 unsafe impl Send for SchedulerState {}
@@ -52,21 +66,27 @@ unsafe impl Sync for SchedulerState {}
 
 pub fn get_new_tid() -> usize { GLOBAL_TID.fetch_add(1, Ordering::Relaxed) }
 
-impl_queue_methods!(SchedulerState, ThreadControlBlock, ready_queue_head, ready_queue_tail);
-
 impl SchedulerState {
     pub const fn new() -> Self {
         SchedulerState {
-            ready_queue_head: null_mut(),
-            ready_queue_tail: null_mut(),
-            current_thread: null_mut(),
-            idle_thread: null_mut(),
+            core_logical_id: 0,
+
+            queue_length: AtomicUsize::new(0),
+            ready_queue_heads: [null_mut(); 32],
+            ready_queue_tails: [null_mut(); 32],
+            active_priorities: 0,
+
             sleep_queue_head: null_mut(),
+            mailbox: TicketLock::new(TCBQueue { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() }),
+            idle_thread: null_mut(),
+
+            current_thread: null_mut(),
         }
     }
 
-    pub fn init(&mut self) {
-        self.idle_thread = init_idle_thread();
+    pub fn init(&mut self, logical_id: usize) {
+        self.idle_thread = init_idle_thread(logical_id);
+        self.core_logical_id = logical_id;
 
         let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
 
@@ -85,71 +105,21 @@ impl SchedulerState {
         };
 
         unsafe {
-            (*tcb_ptr).init(0, 0, fpu_ptr);
+            (*tcb_ptr).init(0, 0, 0, fpu_ptr, logical_id, ThreadPriority::MAXIMUM);
             (*tcb_ptr).state = ThreadState::Running;
         }
 
         self.current_thread = tcb_ptr;
     }
 
-    pub fn spawn(&mut self, entry_point: usize, arg: usize) -> Result<(), ThreadError> {
-        let stack_size = 4096 * 4;
-        let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
-        // alloc memory for structs
-        let tcb_layout = Layout::new::<ThreadControlBlock>();
-        let stack_layout = Layout::from_size_align(stack_size, 4096)?;
-
-        let tcb_ptr = unsafe { alloc(tcb_layout) as *mut ThreadControlBlock };
-        let stack_base = unsafe { alloc(stack_layout) as usize };
-
-        unsafe {
-            let stack_ptr_u64 = stack_base as *mut u64;
-            for i in 0..(stack_size / 8) {
-                write_volatile(stack_ptr_u64.add(i), 0);
-            }
-
-            write_volatile(tcb_ptr as *mut u8, 0);
-        }
-
-        // init extended context state
-        let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
-            gen_avx_dummy_fpu()?
-        } else {
-            let fpu_layout = Layout::from_size_align(fpu_size, 16)?;
-            let fpu_ptr = unsafe { alloc(fpu_layout) as *mut u8 };
-            let def = CLEAN_LEGACY_FPU_CXT.lock();
-            let default_fpu_ref = def.as_ref().expect("Clean FPU not initialized");
-            unsafe { copy_nonoverlapping(default_fpu_ref as *const LegacyXtCxt, fpu_ptr as *mut LegacyXtCxt, 1) };
-            fpu_ptr as *mut u8
-        };
-
-        let stack_top = stack_base + stack_size;
-        let context_addr = stack_top - size_of::<ThreadContext>();
-        let context_addr = context_addr & !0xF; // align to 16 bytes
-        let context = unsafe { &mut *(context_addr as *mut ThreadContext) };
-
-        context.init(entry_point as u64, (stack_top - 8) as u64, arg);
-
-        let switch_addr = context_addr - size_of::<SwitchContext>();
-        let switch_context = unsafe { &mut *(switch_addr as *mut SwitchContext) };
-
-        unsafe extern "C" {
-            fn thread_entry_stub();
-        }
-        switch_context.init((thread_entry_stub as *const ()) as usize);
-
-        // init TCB
-        unsafe {
-            (*tcb_ptr).init(switch_addr, stack_base, fpu_ptr);
-        }
-
-        // push new tcb to queue
-        self.push(tcb_ptr);
-
-        Ok(())
-    }
-
     pub fn schedule(&mut self) {
+        loop {
+            let item = { self.mailbox.lock().pop() };
+            if item.is_null() { break; }
+            unsafe { (*item).state = ThreadState::Ready };
+            self.push(item);
+        }
+
         let mut next_thread = self.pop();
         if next_thread.is_null() {
             next_thread = self.idle_thread;
@@ -157,7 +127,16 @@ impl SchedulerState {
 
         let prev_thread = self.current_thread;
 
-        if prev_thread == self.idle_thread && next_thread == self.idle_thread {
+        // if prev_thread == self.idle_thread && next_thread == self.idle_thread {
+        //     return;
+        // }
+
+        if prev_thread == next_thread {
+            unsafe {
+                if (*next_thread).priority != ThreadPriority::IDLE {
+                    arm_sleep_ns(DEFAULT_QUANTUM);
+                } 
+            }
             return;
         }
 
@@ -222,24 +201,53 @@ impl SchedulerState {
         }
     }
 
-    pub fn push_sleep(&mut self, tcb: *mut ThreadControlBlock) {
-        unsafe {
-            (*tcb).next = null_mut();
-
-            if self.sleep_queue_head.is_null() || (*tcb).wake_time < (*self.sleep_queue_head).wake_time {
-                (*tcb).next = self.sleep_queue_head;
-                self.sleep_queue_head = tcb;
-                return;
-            }
-
-            let mut current = self.sleep_queue_head;
-            while !(*current).next.is_null() && (*(*current).next).wake_time <= (*tcb).wake_time {
-                current = (*current).next;
-            }
-
-            (*tcb).next = (*current).next;
-            (*current).next = tcb;
+    pub fn push(&mut self, item: *mut ThreadControlBlock) {
+        let priority = unsafe { (*item).priority.as_usize() };
+        if item.is_null() {
+            return;
         }
+        unsafe {
+            (*item).next = null_mut();
+            if self.ready_queue_tails[priority].is_null() {
+                self.ready_queue_heads[priority] = item;
+                self.ready_queue_tails[priority] = item;
+            } else {
+                (*self.ready_queue_tails[priority]).next = item;
+                self.ready_queue_tails[priority] = item;
+            }
+            self.queue_length.fetch_add(1, Ordering::Relaxed);
+        }
+        self.active_priorities |= 1 << priority;
+    }
+
+    pub fn pop(&mut self) -> *mut ThreadControlBlock {
+        if self.active_priorities == 0 {
+            return null_mut();
+        }
+
+        let highest_priority = self.active_priorities.trailing_zeros() as usize;
+        let ret = self.ready_queue_heads[highest_priority];
+        
+        unsafe {
+            if ret.is_null() {
+                return null_mut();
+            }
+
+            self.ready_queue_heads[highest_priority] = (*ret).next;
+
+            if self.ready_queue_heads[highest_priority].is_null() {
+                self.ready_queue_tails[highest_priority] = null_mut();
+            }
+
+            if self.ready_queue_heads[highest_priority].is_null() {
+                self.active_priorities &= !(1 << highest_priority);
+            }
+
+            (*ret).next = null_mut();
+            self.queue_length.fetch_sub(1, Ordering::Relaxed);
+            ret
+        }
+
     }
 
     pub fn get_current_thread(&self) -> *mut ThreadControlBlock { self.current_thread }
@@ -255,9 +263,11 @@ impl SchedulerState {
         unsafe {
             disable_interrupts();
             (*self.current_thread).state = ThreadState::Terminated;
+            {
+                GRAVEYARD.lock().push(self.current_thread);
+            }
             arm_sleep_ns(DEFAULT_QUANTUM);
             self.schedule();
         }
     }
 }
-

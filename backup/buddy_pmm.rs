@@ -1,5 +1,5 @@
 use core::slice::from_raw_parts_mut;
-use crate::{drivers::serial::*, kernel::memory::init_pmm::*};
+use crate::{drivers::serial::*};
 
 static ORDER_MAX: usize = 11;
 static PAGE_SIZE: usize = 4096;

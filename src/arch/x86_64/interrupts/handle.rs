@@ -2,22 +2,10 @@ use core::arch::asm;
 
 use crate::arch::x86_64::apic::lapic::{
     ApicDriver,
-    ApicMode,
 };
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
-use crate::kernel::thread::schedule::DEFAULT_QUANTUM;
 use crate::kernel::thread::tcb::ThreadState;
-use crate::kernel::thread::workqueue::{
-    WorkItem,
-    WorkQueue,
-    worker_thread,
-};
-use crate::kernel::time::{
-    arm_sleep_ns,
-    arm_sleep_ticks,
-    get_time,
-};
 use crate::klogln;
 use crate::memory::GLOBAL_VMM;
 
@@ -44,42 +32,19 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
 
 pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
-    let current_time = get_time();
+    klogln!("timer interrupt");
 
-    match &core_data.apic_mode {
-        ApicMode::XApic(apic) => apic.eoi(),
-        ApicMode::X2Apic(apic) => apic.eoi(),
-    }
-
-    let sched = &mut core_data.scheduler;
+    core_data.apic_mode.eoi(); 
 
     unsafe {
-        while !sched.sleep_queue_head.is_null() {
-            let sleeping_thread = sched.sleep_queue_head;
-
-            if (*sleeping_thread).wake_time > current_time {
-                break;
-            }
-
-            sched.sleep_queue_head = (*sleeping_thread).next;
-            (*sleeping_thread).next = core::ptr::null_mut();
-
-            (*sleeping_thread).state = ThreadState::Ready;
-            sched.push(sleeping_thread);
+        let td_tcb_ptr = (*core_data).timer_daemon_tcb;
+        if (*td_tcb_ptr).state == ThreadState::Blocked {
+            (*td_tcb_ptr).state = ThreadState::Ready;
+            core_data.scheduler.push(td_tcb_ptr);
         }
     }
 
-    if !sched.sleep_queue_head.is_null() {
-        let next_wake = unsafe { (*sched.sleep_queue_head).wake_time };
-
-        let delta_ticks = next_wake.saturating_sub(current_time);
-
-        arm_sleep_ticks(delta_ticks);
-    } else {
-        arm_sleep_ns(DEFAULT_QUANTUM);
-    }
-
-    sched.schedule();
+    core_data.scheduler.schedule();
 }
 
 pub(in crate::arch::x86_64::interrupts) fn ipi_handler() {

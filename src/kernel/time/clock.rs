@@ -2,13 +2,16 @@ use core::arch::asm;
 use core::mem::transmute;
 use core::sync::atomic::Ordering;
 
+use crate::arch::get_rtc_unix_timestamp;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::{
     disable_interrupts,
     enable_interrupts,
 };
+use crate::kernel::sync::KernelOnceCell;
 use crate::kernel::thread::ThreadState;
+use crate::kernel::time::callout::{Callout, CalloutPayload};
 use crate::kernel::time::{
     GET_TIME_FN,
     IA32_TSC_DEADLINE,
@@ -18,9 +21,22 @@ use crate::kernel::time::{
     USE_TSC_DEADLINE,
 };
 
+static BOOT_RTC_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
+static BOOT_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
+
+pub fn init_realtime() {
+    BOOT_RTC_TIMESTAMP.get_or_init(|| get_rtc_unix_timestamp());
+    BOOT_TIMESTAMP.get_or_init(|| get_time() as i64);
+}
+
+pub fn get_realtime() -> i64 {
+    let seconds_passed = (get_time() as i64 - *BOOT_TIMESTAMP) / *TIME_SRC_FQ as i64;
+    *BOOT_RTC_TIMESTAMP + seconds_passed
+}
+
 pub fn arm_sleep_ns(ns: usize) {
     if USE_TSC_DEADLINE.load(Ordering::Relaxed) {
-        let tsc_fq = TIME_SRC_FQ.load(Ordering::Relaxed);
+        let tsc_fq = *TIME_SRC_FQ;
         let tsc_ticks = (ns * tsc_fq) / 1_000_000_000;
 
         let mut lo: u32;
@@ -40,7 +56,7 @@ pub fn arm_sleep_ns(ns: usize) {
                 in("ecx") IA32_TSC_DEADLINE, in("eax") tgt_lo, in("edx") tgt_hi, options(nomem, nostack));
         }
     } else {
-        let lapic_fq = LAPIC_FQ.load(Ordering::Relaxed);
+        let lapic_fq = *LAPIC_FQ;
         let lapic_ticks = (ns as usize * lapic_fq) / 1_000_000_000;
 
         let core_data = get_core_data();
@@ -67,19 +83,16 @@ pub fn arm_sleep_ticks(ticks: usize) {
                 in("ecx") IA32_TSC_DEADLINE, in("eax") tgt_lo, in("edx") tgt_hi, options(nomem, nostack));
         }
     } else {
-        let global_fq = TIME_SRC_FQ.load(Ordering::Relaxed) as u128;
-        let lapic_fq = LAPIC_FQ.load(Ordering::Relaxed) as u128;
+        let global_fq = *TIME_SRC_FQ;
+        let lapic_fq = *LAPIC_FQ;
 
-        let lapic_ticks = (ticks as u128 * lapic_fq) / global_fq;
+        let lapic_ticks = (ticks as u128 * lapic_fq as u128) / global_fq as u128;
         let core_data = get_core_data();
         core_data.apic_mode.arm_oneshot(lapic_ticks as u32);
     }
 }
 
-pub fn ns_to_ticks(ns: usize) -> usize {
-    let freq = TIME_SRC_FQ.load(Ordering::Relaxed);
-    ((ns as u128 * freq as u128) / 1_000_000_000) as usize
-}
+pub fn ns_to_ticks(ns: usize) -> usize { ((ns as u128 * *TIME_SRC_FQ as u128) / 1_000_000_000) as usize }
 
 pub fn get_time() -> usize {
     let ptr = GET_TIME_FN.load(Ordering::Relaxed);
@@ -94,7 +107,6 @@ pub fn sleep(ns: usize) {
 
     let core_data = get_core_data();
     let sched = &mut core_data.scheduler;
-
     let current_thread = sched.get_current_thread();
 
     unsafe {
@@ -102,10 +114,27 @@ pub fn sleep(ns: usize) {
         (*current_thread).wake_time = target_time;
     }
 
-    sched.push_sleep(current_thread);
+    let callout = Callout {
+        wake_time: target_time,
+        payload: CalloutPayload::WakeThread(current_thread),
+    };
 
-    if sched.sleep_queue_head == current_thread {
-        arm_sleep_ns(ns);
+    let mut queue = get_core_data().callout_queue.lock();
+    queue.push(callout);
+    
+    let is_earliest = queue.peek().unwrap().wake_time == target_time;
+    drop(queue);
+
+    if is_earliest {
+        let daemon_ptr = get_core_data().timer_daemon_tcb;
+        if !daemon_ptr.is_null() {
+            unsafe {
+                if (*daemon_ptr).state == ThreadState::Blocked {
+                    (*daemon_ptr).state = ThreadState::Ready;
+                    sched.push(daemon_ptr);
+                }
+            }
+        }
     }
 
     sched.schedule();

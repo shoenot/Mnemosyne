@@ -1,4 +1,8 @@
 use core::ptr::null_mut;
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
 use crate::arch::{
     disable_interrupts,
@@ -6,7 +10,6 @@ use crate::arch::{
     get_core_data,
 };
 use crate::impl_queue_methods;
-use crate::kernel::sync::TicketLock;
 use crate::kernel::thread::ThreadState;
 use crate::kernel::thread::wait::WaitQueue;
 
@@ -20,6 +23,7 @@ pub struct WorkItem {
 }
 
 pub struct WorkQueue {
+    pub queue_length: AtomicUsize,
     head: *mut WorkItem,
     tail: *mut WorkItem,
     wait_queue: WaitQueue,

@@ -1,6 +1,10 @@
-use core::ptr::null_mut;
+use core::{ops::Add, ptr::null_mut};
 
-use crate::kernel::thread::schedule::get_new_tid;
+use crate::kernel::thread::schedule::{
+    get_new_tid,
+};
+
+use super::priority::ThreadPriority;
 
 #[derive(PartialEq)]
 pub enum ThreadState {
@@ -8,15 +12,6 @@ pub enum ThreadState {
     Running,
     Blocked,
     Terminated,
-}
-
-#[derive(PartialEq)]
-pub enum ThreadPriority {
-    Idle,
-    Low,
-    Medium,
-    High,
-    Maximum,
 }
 
 #[repr(C)]
@@ -29,19 +24,24 @@ pub struct ThreadControlBlock {
     pub total_runtime: usize,
     pub stack_ptr: usize,
     pub stack_base: usize,
+    pub stack_size: usize,
     pub extended_context: *mut u8,
+    pub home_core: usize,
     pub next: *mut ThreadControlBlock,
 }
 
 impl ThreadControlBlock {
-    pub fn init(&mut self, stack_ptr: usize, stack_base: usize, fpu_ptr: *mut u8) {
+    pub fn init(&mut self, stack_ptr: usize, stack_base: usize, stack_size: usize, 
+                           fpu_ptr: *mut u8, home_core: usize, priority: ThreadPriority) {
         self.thread_id = get_new_tid();
         self.state = ThreadState::Ready;
-        self.priority = ThreadPriority::Medium;
+        self.priority = priority;
         self.total_runtime = 0;
         self.stack_ptr = stack_ptr;
         self.stack_base = stack_base;
+        self.stack_size = stack_size;
         self.extended_context = fpu_ptr;
+        self.home_core = home_core;
         self.next = null_mut();
     }
 }
