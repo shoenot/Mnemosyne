@@ -22,7 +22,6 @@ use crate::{
 fn idle_loop() -> ! {
     unsafe {
         enable_interrupts();
-        klogln!("Nothing to do. Entering idle loop.");
         loop {
             asm!("sti; hlt", options(nomem, nostack));
         }

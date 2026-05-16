@@ -24,7 +24,7 @@ pub struct CPULocalData {
     pub core_gdt: CPULocalGDT,
     pub apic_mode: ApicMode,
     pub scheduler: SchedulerState,
-    pub work_queue: TicketLock<WorkQueue>,
+    pub work_queue: WorkQueue,
     pub callout_queue: TicketLock<BinaryHeap<Callout>>,
     pub timer_daemon_tcb: *mut ThreadControlBlock
 }

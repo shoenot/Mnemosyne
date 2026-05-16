@@ -21,7 +21,6 @@ pub extern "C" fn reaper_daemon(_arg: usize) -> ! {
 
 fn reap_thread(thread: *mut ThreadControlBlock) {
     unsafe {
-        klogln!("Reaping thread with priority {:?}", (*thread).priority);
         // dealloc stack
         let stack_ptr = (*thread).stack_ptr as *mut u8;
         let stack_size = (*thread).stack_size;

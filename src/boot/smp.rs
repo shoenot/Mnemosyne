@@ -50,7 +50,6 @@ pub extern "C" fn ap_entry(mp_info: &MpInfo) -> ! {
         core_data.apic_mode.timer_setup(35, 0, TimerMode::OneShot);
     }
 
-    klogln!("Started {}", get_core_data().lapic_id);
     enable_interrupts();
     terminate_thread!();
 }

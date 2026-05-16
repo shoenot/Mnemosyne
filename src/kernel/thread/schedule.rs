@@ -113,6 +113,7 @@ impl SchedulerState {
     }
 
     pub fn schedule(&mut self) {
+        disable_interrupts();
         loop {
             let item = { self.mailbox.lock().pop() };
             if item.is_null() { break; }
@@ -144,7 +145,7 @@ impl SchedulerState {
             unsafe {
                 if (*prev_thread).state == ThreadState::Running {
                     (*prev_thread).state = ThreadState::Ready;
-                    if prev_thread != self.idle_thread {
+                    if prev_thread != self.idle_thread && prev_thread != next_thread {
                         self.push(prev_thread);
                     }
                 }

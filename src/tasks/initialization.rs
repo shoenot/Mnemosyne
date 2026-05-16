@@ -2,6 +2,7 @@ use core::sync::atomic::Ordering;
 
 use crate::arch::enable_interrupts;
 use crate::arch::get_core_data;
+use crate::drivers::keyboard::kbd_processor_thread;
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::reap::reaper_daemon;
@@ -10,13 +11,34 @@ use crate::kernel::time::datetime::epoch_to_datetime;
 use crate::kernel::time::sleep;
 use crate::klogln;
 use crate::terminate_thread;
+use crate::tests::smp_tests::MUTEX_RACE;
+use crate::tests::smp_tests::THREADS_FINISHED;
+use crate::tests::smp_tests::consumer_thread;
+use crate::tests::smp_tests::contention_mutex_thread;
+use crate::tests::smp_tests::producer_thread;
 
 // Kernel initialization tasks
 
 // Init function dispatcher
 pub extern "C" fn initializer(_arg: usize) -> ! {
-    spawn_kernel_thread(time_print_dispatcher as *const () as usize, 0, ThreadPriority::MEDIUM);
     spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER);
+    spawn_kernel_thread(kbd_processor_thread as *const () as usize, 0, ThreadPriority::HIGH);
+    
+    terminate_thread!();
+}
+
+pub extern "C" fn watchdog(threads: usize) -> ! {
+    loop {
+        if THREADS_FINISHED.load(Ordering::Relaxed) == threads {
+            let guard = MUTEX_RACE.lock();
+            let counter = *guard;
+            drop(guard);
+            klogln!("All threads finished. Final count: {}", counter);
+            break
+        } else {
+            sleep(1_000_000_000);
+        }
+    }
     terminate_thread!();
 }
 
@@ -32,3 +54,4 @@ pub extern "C" fn time_print(_arg: usize) -> ! {
     klogln!("Current time is: {}", epoch_to_datetime(time::get_realtime()));
     terminate_thread!();
 }
+

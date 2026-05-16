@@ -8,6 +8,7 @@ use core::sync::atomic::{
     Ordering,
 };
 
+use crate::arch::interrupts_enabled;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::{
     disable_interrupts,
@@ -15,6 +16,7 @@ use crate::arch::x86_64::interrupts::{
 };
 use crate::kernel::sync::TicketLock;
 use crate::kernel::thread::ThreadState;
+use crate::kernel::thread::dispatch::wake_thread;
 use crate::kernel::thread::wait::WaitQueue;
 
 pub struct Mutex<T> {
@@ -27,7 +29,7 @@ unsafe impl<T: Send> Sync for Mutex<T> {}
 unsafe impl<T: Send> Send for Mutex<T> {}
 
 pub struct MutexGuard<'a, T> {
-    mutex: &'a Mutex<T>,
+    pub mutex: &'a Mutex<T>,
 }
 
 impl<T> Mutex<T> {
@@ -35,7 +37,7 @@ impl<T> Mutex<T> {
         Self { is_locked: AtomicBool::new(false), wait_queue: TicketLock::new(WaitQueue::new()), data: UnsafeCell::new(data) }
     }
 
-    pub fn lock(&self) -> MutexGuard<T> {
+    pub fn lock(&self) -> MutexGuard<'_, T> {
         loop {
             if !self.is_locked.swap(true, Ordering::Acquire) {
                 return MutexGuard { mutex: self };
@@ -49,7 +51,6 @@ impl<T> Mutex<T> {
             // check if someone unlocked it while we were grabbing locks
             if !self.is_locked.load(Ordering::Relaxed) {
                 drop(wq);
-                drop(sched);
                 enable_interrupts();
                 continue;
             }
@@ -66,7 +67,6 @@ impl<T> Mutex<T> {
             sched.schedule();
 
             // continues here when unlocked
-            drop(sched);
             enable_interrupts();
         }
     }
@@ -74,6 +74,7 @@ impl<T> Mutex<T> {
     pub fn unlock(&self) {
         self.is_locked.store(false, Ordering::Release);
 
+        let int_state = interrupts_enabled();
         disable_interrupts();
 
         let mut wq = self.wait_queue.lock();
@@ -81,15 +82,10 @@ impl<T> Mutex<T> {
         drop(wq);
 
         if !next_thread.is_null() {
-            let sched = &mut get_core_data().scheduler;
-            unsafe {
-                (*next_thread).state = ThreadState::Ready;
-            }
-            sched.push(next_thread);
-            drop(sched);
+            wake_thread(next_thread);
         }
 
-        enable_interrupts();
+        if int_state { enable_interrupts() };
     }
 }
 

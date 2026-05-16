@@ -1,4 +1,5 @@
 use core::arch::asm;
+use core::sync::atomic::Ordering;
 
 use crate::arch::x86_64::io::inb;
 use crate::arch::x86_64::{IO_APIC, io};
@@ -7,6 +8,7 @@ use crate::arch::x86_64::apic::lapic::{
 };
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
+use crate::drivers::keyboard::{KBD_BUFFER, KBD_BUFFER_SIZE, KBD_BUFFER_TAIL, KBD_ITEMS_READY};
 use crate::kernel::thread::tcb::ThreadState;
 use crate::klogln;
 use crate::memory::GLOBAL_VMM;
@@ -66,14 +68,17 @@ pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
     let core_data = get_core_data();
     core_data.apic_mode.eoi();
     
-    crate::drivers::serial::log_to_serial("KB INT\n");
+    // crate::drivers::serial::log_to_serial("KB INT\n");
 
     unsafe {
-        for _ in 0..10 {
+        for _ in 0..256 {
             if (io::inb(0x64) & 0x1) == 0 {
                 break 
             }
-            io::inb(0x60);
+            let tail = KBD_BUFFER_TAIL.load(Ordering::Relaxed) % KBD_BUFFER_SIZE;
+            KBD_BUFFER[tail] = io::inb(0x60);
+            KBD_BUFFER_TAIL.fetch_add(1, Ordering::Relaxed);
+            KBD_ITEMS_READY.signal();
         }
     }
 }

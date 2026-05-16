@@ -1,17 +1,17 @@
+use core::alloc::Layout;
 use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicUsize,
     Ordering,
 };
 
+use alloc::alloc::dealloc;
+
 use crate::arch::{
-    disable_interrupts,
-    enable_interrupts,
     get_core_data,
 };
 use crate::impl_queue_methods;
-use crate::kernel::thread::ThreadState;
-use crate::kernel::thread::wait::WaitQueue;
+use crate::kernel::sync::{Semaphore, TicketLock};
 
 // deferred work func signature
 type WorkFunction = fn(*mut u8);
@@ -22,43 +22,34 @@ pub struct WorkItem {
     pub next: *mut WorkItem,
 }
 
-pub struct WorkQueue {
+pub struct WorkItemQueue {
     pub queue_length: AtomicUsize,
-    head: *mut WorkItem,
-    tail: *mut WorkItem,
-    wait_queue: WaitQueue,
+    pub head: *mut WorkItem,
+    pub tail: *mut WorkItem,
 }
 
-impl_queue_methods!(WorkQueue, WorkItem, head, tail);
+pub struct WorkQueue {
+    pub items: TicketLock<WorkItemQueue>,
+    pub items_ready: Semaphore,
+}
+
+impl_queue_methods!(WorkItemQueue, WorkItem, head, tail);
 
 pub extern "C" fn worker_thread() -> ! {
     loop {
-        disable_interrupts();
-        let mut wq = get_core_data().work_queue.lock();
+        get_core_data().work_queue.items_ready.wait();
 
-        if wq.head.is_null() {
-            // queue is empty, go to bed
-            let scheduler = &mut get_core_data().scheduler;
-            let current_thread = scheduler.get_current_thread();
-            unsafe { (*current_thread).state = ThreadState::Blocked };
-            wq.wait_queue.push(current_thread);
+        let mut queue = get_core_data().work_queue.items.lock();
+        let item = queue.pop();
+        drop(queue);
 
-            // drop lock before calling schedule
-            drop(wq);
-            scheduler.schedule();
-
-            // enable interrupts after waking up
-            enable_interrupts();
-        } else {
+        if !item.is_null() {
             unsafe {
-                let item = wq.pop();
-
-                // again, drop lock before switching out
-                drop(wq);
-                enable_interrupts();
-
                 ((*item).func)((*item).data);
+                dealloc(item as *mut u8, Layout::new::<WorkItem>());
             }
+        } else {
+            continue 
         }
     }
 }

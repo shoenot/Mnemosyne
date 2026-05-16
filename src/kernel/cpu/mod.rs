@@ -15,6 +15,7 @@ use crate::boot::MP_REQUEST;
 use crate::boot::smp::ap_entry;
 use crate::demo::test_thread;
 use crate::kernel::sync::KernelOnceCell;
+use crate::klogln;
 
 pub const MAX_CORES: usize = 256;
 pub static NUM_CORES: KernelOnceCell<usize> = KernelOnceCell::new();
@@ -50,6 +51,8 @@ pub fn init_smp() {
 
         logical_id += 1;
     }
+
+    klogln!("Started all cores");
 
     NUM_CORES.get_or_init(|| logical_id);
 }
