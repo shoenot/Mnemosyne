@@ -14,7 +14,7 @@ pub use pmm::{
 };
 use vmm::*;
 
-use crate::kernel::sync::TicketLock;
+use crate::kernel::sync::{RwLock, TicketLock};
 use crate::{
     klog,
     klogln,
@@ -25,7 +25,7 @@ pub static KERNEL_ALLOCATOR: KernelAllocator = KernelAllocator::new();
 
 pub static ALLOCATOR: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 pub static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
-pub static GLOBAL_VMM: TicketLock<VirtMemManager> = TicketLock::new(VirtMemManager::new(&PAGER, &ALLOCATOR));
+pub static GLOBAL_VMM: RwLock<VirtMemManager> = RwLock::new(VirtMemManager::new(&PAGER, &ALLOCATOR));
 
 pub fn init() {
     klogln!("INITIATING MEMORY MANAGERS... ");

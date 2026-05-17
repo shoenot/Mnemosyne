@@ -1,4 +1,5 @@
 use alloc::format;
+use alloc::vec::Vec;
 use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicPtr,
@@ -31,6 +32,7 @@ pub fn register_core_data(logical_id: usize, data_ptr: *mut CPULocalData) {
 pub fn init_smp() {
     let mp_resp = MP_REQUEST.response().expect("No SMP Response from limine");
     let bsp_id = mp_resp.bsp_lapic_id;
+    register_core_data(0, get_core_data());
 
     let mut logical_id = 1;
     for core in mp_resp.cpus() {
@@ -69,4 +71,12 @@ pub fn try_get_core_data_for(logical_id: usize) -> Option<&'static CPULocalData>
     assert!(logical_id < MAX_CORES, "Invalid Core ID");
     let ptr = GLOBAL_CPU_DATA[logical_id].load(Ordering::Acquire);
     if ptr.is_null() { None } else { Some(unsafe { &mut *ptr }) }
+}
+
+pub fn get_active_cores() -> Vec<u32> {
+    let mut ret = Vec::new();
+    for core in 0..*NUM_CORES {
+        ret.push(get_core_data_for(core).lapic_id as u32);
+    }
+    ret
 }

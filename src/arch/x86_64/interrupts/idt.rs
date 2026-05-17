@@ -121,6 +121,7 @@ extern "C" fn interrupt_dispatch(frame: &mut InterruptStackFrame) {
         33 => handle::keyboard_irq_handler(),
         35 => handle::timer_interrupt_handler(),
         64 => handle::ipi_handler(),
+        65 => handle::shootdown_handler(),
         _ => {
             if frame.interrupt_number >= 32 {
                 klogln!("Spurious IRQ: {}", frame.interrupt_number);

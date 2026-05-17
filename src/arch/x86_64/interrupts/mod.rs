@@ -1,5 +1,6 @@
 pub(crate) mod handle;
 pub(crate) mod idt;
+pub(crate) mod shootdown;
 
 use core::arch::asm;
 

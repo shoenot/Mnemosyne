@@ -2,6 +2,12 @@ use core::arch::asm;
 use core::sync::atomic::Ordering;
 
 use crate::arch::x86_64::apic::lapic::ApicDriver;
+use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
+use crate::arch::x86_64::io::inb;
+use crate::arch::x86_64::{IO_APIC, io};
+use crate::arch::x86_64::apic::lapic::{
+    ApicDriver,
+};
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
 use crate::arch::x86_64::io::inb;
@@ -18,6 +24,7 @@ use crate::drivers::keyboard::{
 use crate::kernel::thread::tcb::ThreadState;
 use crate::klogln;
 use crate::memory::GLOBAL_VMM;
+use crate::memory::paging::flush_tlb;
 
 pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut InterruptStackFrame) {
     let cr2: u64;
@@ -25,7 +32,7 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
         asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
     }
 
-    let mut vmm = GLOBAL_VMM.lock();
+    let vmm = GLOBAL_VMM.read();
     if !vmm.handle_page_fault(cr2 as usize, frame.error_code as usize) {
         panic!("FATAL: Unhandled Page Fault!");
     }
@@ -86,4 +93,10 @@ pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
             KBD_ITEMS_READY.signal();
         }
     }
+}
+
+pub(in crate::arch::x86_64::interrupts) fn shootdown_handler() {
+    let addr = SHOOTDOWN_INFO.addr.load(Ordering::Acquire);
+    flush_tlb(addr as u64);
+    SHOOTDOWN_INFO.counter.fetch_sub(1, Ordering::Release);
 }

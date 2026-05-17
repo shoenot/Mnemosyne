@@ -61,7 +61,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
             unsafe { cache_lock.allocate() }
         } else {
             // vmalloc
-            let mut vmm = GLOBAL_VMM.lock();
+            let mut vmm = GLOBAL_VMM.write();
             if size < HUGE_PAGE_SIZE {
                 match vmm.mmap(size, KERNEL_VM_FLAGS) {
                     Some(addr) => addr as *mut u8,
@@ -89,7 +89,7 @@ unsafe impl GlobalAlloc for KernelAllocator {
             unsafe { cache_lock.deallocate(ptr) }
         } else {
             // vfree
-            let mut vmm = GLOBAL_VMM.lock();
+            let mut vmm = GLOBAL_VMM.write();
             let _ = vmm.munmap(ptr as usize, size);
         }
     }

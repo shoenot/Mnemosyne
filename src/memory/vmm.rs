@@ -1,12 +1,17 @@
 #![allow(dead_code)]
 
+use alloc::alloc::dealloc;
 use alloc::alloc::{
     Layout,
     alloc,
 };
 
+// TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
+// ipis.
+
 use super::paging::*;
 use super::pmm::*;
+use crate::arch::x86_64::interrupts::shootdown::shootdown;
 use crate::kernel::sync::TicketLock;
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
@@ -164,13 +169,14 @@ impl VirtMemManager {
 
         unsafe {
             while let Some(curr) = current_ptr {
-                let node = &*curr;
+                let node = &mut *curr; 
 
                 if node.start == start_addr {
                     if node.size != size {
                         return Err("Size does not match VMA region");
                     }
 
+                    // Detach from the list
                     if let Some(prev) = node.prev {
                         (*prev).next = node.next;
                     } else {
@@ -184,7 +190,6 @@ impl VirtMemManager {
                     target_vma_ptr = Some(curr);
                     break;
                 }
-
                 current_ptr = node.next;
             }
         }
@@ -199,18 +204,32 @@ impl VirtMemManager {
         let block_size = if is_huge { BlockSize::Huge } else { BlockSize::Normal };
 
         let mut current_page = target_vma.start;
-        let mut pagerlock = self.pager.lock();
-        let mut alloclock = self.allocator.lock();
+        let end_page = target_vma.start + target_vma.size;
 
-        while current_page < (target_vma.start + target_vma.size) {
+        while current_page < end_page {
             let virt = VirtAddress(current_page as u64);
+            let mut phys_to_free = None;
 
-            if let Some(phys_addr) = pagerlock.translate(virt, *HHDMOFFSET as u64) {
-                alloclock.free(phys_addr as usize, block_size);
-                pagerlock.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+            {
+                let mut pagerlock = self.pager.lock();
+                if let Some(phys_addr) = pagerlock.translate(virt, *HHDMOFFSET as u64) {
+                    phys_to_free = Some(phys_addr as usize);
+                    pagerlock.unmap_page(virt, *HHDMOFFSET as u64, block_size);
+                }
             }
-            flush_tlb(current_page as u64);
+
+            shootdown(current_page, size);
+
+            if let Some(phys_addr) = phys_to_free {
+                let mut alloclock = self.allocator.lock();
+                alloclock.free(phys_addr, block_size);
+            } 
+
             current_page += step_size;
+        }
+
+        unsafe {
+            dealloc(target_vma_ptr.unwrap() as *mut u8, Layout::new::<VmaNode>());
         }
 
         Ok(())
@@ -261,7 +280,7 @@ impl VirtMemManager {
         Ok(())
     }
 
-    pub fn handle_page_fault(&mut self, addr: usize, error_code: usize) -> bool {
+    pub fn handle_page_fault(&self, addr: usize, error_code: usize) -> bool {
         let mut target_vma_ptr = None;
         let mut current_ptr = self.head;
 
