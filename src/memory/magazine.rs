@@ -1,10 +1,4 @@
-use crate::arch::{
-    disable_interrupts,
-    enable_interrupts,
-    interrupts_enabled,
-};
 use crate::memory::{
-    ALLOCATOR,
     BlockSize,
     GLOBAL_PMM,
 };

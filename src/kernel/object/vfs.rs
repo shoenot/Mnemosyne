@@ -1,6 +1,5 @@
 use alloc::sync::Arc;
 
-use crate::arch::x86_64::interrupts::handle;
 use crate::kernel::object::directory::Directory;
 use crate::kernel::object::handle::{
     AccessRights,
@@ -16,7 +15,10 @@ use crate::kernel::object::obj::{
     KernelObject,
 };
 use crate::kernel::sync::RwLock;
-use crate::{klog, klogln};
+use crate::{
+    klog,
+    klogln,
+};
 
 pub static PRINCIPAL_HANDLE_TABLE: RwLock<KernelHandleTable> = RwLock::new(KernelHandleTable::new());
 
@@ -80,24 +82,20 @@ pub fn init_vfs() {
     klog!("Mounting /dev ... ");
     // mount '/dev' inside '/'
     let dev_name = "dev";
-    sys_invoke(root_handle, Invocation::Directory(
-        DirectoryMessage::Link {
-            name: dev_name.as_ptr(),
-            name_len: dev_name.len(),
-            handle_id: dev_handle,
-        }
-    )).expect("Failed to link /dev");
+    sys_invoke(
+        root_handle,
+        Invocation::Directory(DirectoryMessage::Link { name: dev_name.as_ptr(), name_len: dev_name.len(), handle_id: dev_handle }),
+    )
+    .expect("Failed to link /dev");
     klogln!("Mount success!");
 
     klog!("Mounting /dev/test ...");
     let test_name = "test";
-    sys_invoke(dev_handle, Invocation::Directory(
-        DirectoryMessage::Link { 
-            name: test_name.as_ptr(),
-            name_len: test_name.len(), 
-            handle_id: test_handle, 
-        }
-    )).expect("Failed to link /dev/test");
+    sys_invoke(
+        dev_handle,
+        Invocation::Directory(DirectoryMessage::Link { name: test_name.as_ptr(), name_len: test_name.len(), handle_id: test_handle }),
+    )
+    .expect("Failed to link /dev/test");
     klogln!("Mount success!");
 }
 
@@ -105,19 +103,19 @@ pub fn test_vfs_path_res(path: &str) -> Result<HandleID, InvocationError> {
     let mut current_handle = ROOT_DIRECTORY.read().expect("Root not initialized.");
 
     for component in path.split('/') {
-        if component.is_empty() { continue; }
+        if component.is_empty() {
+            continue;
+        }
 
-        let result = sys_invoke(current_handle, Invocation::Directory(
-            DirectoryMessage::Lookup {
-                name: component.as_ptr(),
-                name_len: component.len(),
-            }
-        ));
+        let result = sys_invoke(
+            current_handle,
+            Invocation::Directory(DirectoryMessage::Lookup { name: component.as_ptr(), name_len: component.len() }),
+        );
 
         match result {
             Ok(next_handle_id) => {
                 current_handle = HandleID(next_handle_id);
-            },
+            }
             Err(e) => {
                 klogln!("Path resolution failed at '{}': {:?}", component, e);
                 return Err(e);

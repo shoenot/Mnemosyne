@@ -1,15 +1,16 @@
-use core::ops::{Deref, DerefMut};
 use core::arch::asm;
+use core::ops::{
+    Deref,
+    DerefMut,
+};
 
 use super::gdt::*;
 use crate::BOOTSTRAP_ALLOC;
 use crate::arch::x86_64::apic::lapic::ApicMode;
+use crate::kernel::cpu::KernelCoreData;
 use crate::kernel::thread::dispatch::create_tcb;
 use crate::kernel::thread::priority::ThreadPriority;
-use crate::kernel::time::callout::{
-    timer_daemon,
-};
-use crate::kernel::cpu::KernelCoreData;
+use crate::kernel::time::callout::timer_daemon;
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
@@ -25,15 +26,11 @@ pub struct CPULocalData {
 
 impl Deref for CPULocalData {
     type Target = KernelCoreData;
-    fn deref(&self) -> &Self::Target {
-        &self.kernel_data
-    }
+    fn deref(&self) -> &Self::Target { &self.kernel_data }
 }
 
 impl DerefMut for CPULocalData {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.kernel_data
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.kernel_data }
 }
 
 pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {

@@ -20,9 +20,7 @@ use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::interrupts::idt::load_idt;
 use crate::kernel::time::USE_TSC_DEADLINE;
 use crate::memory::paging::load_cr3;
-use crate::{
-    terminate_thread,
-};
+use crate::terminate_thread;
 
 pub static BSP_CR3: AtomicU64 = AtomicU64::new(0);
 

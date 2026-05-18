@@ -1,10 +1,20 @@
-use core::{borrow::Borrow, str::Utf8Error};
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::{
+    slice,
+    str,
+};
+use core::borrow::Borrow;
+use core::str::Utf8Error;
 
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, format, slice, str, string::String};
-
-use crate::kernel::{object::{handle::HandleID, invoke::{Invocation, InvocationError}, obj::KernelObject}, sync::RwLock};
+use crate::kernel::object::handle::HandleID;
+use crate::kernel::object::invoke::{
+    Invocation,
+    InvocationError,
+};
 use crate::kernel::object::message::DirectoryMessage;
-
+use crate::kernel::object::obj::KernelObject;
+use crate::kernel::sync::RwLock;
 
 #[derive(Debug)]
 pub struct Directory {
@@ -17,9 +27,7 @@ pub struct Filename {
 }
 
 impl Borrow<str> for Filename {
-    fn borrow(&self) -> &str {
-        &self.name
-    }
+    fn borrow(&self) -> &str { &self.name }
 }
 
 impl Filename {
@@ -35,22 +43,19 @@ impl Filename {
     }
 }
 
-
 impl KernelObject for Directory {
     fn invoke(&self, invocation: Invocation) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::Directory(DirectoryMessage::Link { name, name_len, handle_id }) => { self.link(name, name_len, handle_id) },
-            Invocation::Directory(DirectoryMessage::Unlink { name, name_len }) => { self.unlink(name, name_len) },
-            Invocation::Directory(DirectoryMessage::Lookup { name, name_len }) => { self.lookup(name, name_len) },
+            Invocation::Directory(DirectoryMessage::Link { name, name_len, handle_id }) => self.link(name, name_len, handle_id),
+            Invocation::Directory(DirectoryMessage::Unlink { name, name_len }) => self.unlink(name, name_len),
+            Invocation::Directory(DirectoryMessage::Lookup { name, name_len }) => self.lookup(name, name_len),
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
 }
 
 impl Directory {
-    pub const fn new() -> Self {
-        Self { tree: RwLock::new(BTreeMap::new()) }
-    }
+    pub const fn new() -> Self { Self { tree: RwLock::new(BTreeMap::new()) } }
 
     fn link(&self, name: *const u8, name_len: usize, handle_id: HandleID) -> Result<usize, InvocationError> {
         let filename = Filename::new(name, name_len)?;

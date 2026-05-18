@@ -1,5 +1,6 @@
 #![no_std]
 #![no_main]
+extern crate alloc;
 mod arch;
 mod boot;
 mod demo;
@@ -10,8 +11,6 @@ mod panic;
 mod tasks;
 mod tests;
 mod util;
-
-extern crate alloc;
 
 use core::sync::atomic::Ordering;
 
@@ -24,12 +23,11 @@ use boot::smp::BSP_CR3;
 pub use boot::*;
 use drivers::logger::LOGGER;
 use kernel::cpu::init_smp;
-use kernel::sync::TicketLock;
 use kernel::time;
 use memory::paging::get_cr3;
 use memory::{
+    BOOTSTRAP_ALLOC,
     BlockSize,
-    BOOTSTRAP_ALLOC
 };
 
 use crate::drivers::keyboard::init_keyboard_irq;
@@ -37,7 +35,6 @@ use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::datetime::epoch_to_datetime;
 use crate::memory::GLOBAL_PMM;
-
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {

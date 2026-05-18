@@ -96,7 +96,9 @@ impl SwitchContext {
     }
 }
 
-pub fn init_thread_stack(entry_point: usize, arg: usize, stack_base: usize, stack_size: usize) -> Result<(usize, *mut u8), crate::kernel::thread::ThreadError> {
+pub fn init_thread_stack(
+    entry_point: usize, arg: usize, stack_base: usize, stack_size: usize,
+) -> Result<(usize, *mut u8), crate::kernel::thread::ThreadError> {
     let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
 
     let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
@@ -132,8 +134,8 @@ pub fn init_thread_stack(entry_point: usize, arg: usize, stack_base: usize, stac
 }
 
 pub fn allocate_fpu_context_bootstrap() -> *mut u8 {
-    use crate::arch::x86_64::cpu::fpu::CLEAN_FPU_CXT;
     use crate::BOOTSTRAP_ALLOC;
+    use crate::arch::x86_64::cpu::fpu::CLEAN_FPU_CXT;
     let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
         let size = FPU_CXT_SIZE.load(Ordering::Relaxed);
         let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(size, 64) as *mut u8;

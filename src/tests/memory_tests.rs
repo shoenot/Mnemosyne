@@ -15,7 +15,6 @@ use crate::memory::{
     BlockSize,
     GLOBAL_PMM,
     HUGE_PAGE_SIZE,
-    PCAllocator,
 };
 use crate::{
     klog,

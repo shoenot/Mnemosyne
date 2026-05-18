@@ -1,5 +1,3 @@
-use core::sync::atomic::Ordering;
-
 #[macro_export]
 macro_rules! impl_queue_methods {
     ($queue_type:ty, $item_type:ty, $head_field:ident, $tail_field:ident) => {

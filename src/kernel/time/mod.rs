@@ -6,23 +6,16 @@ use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicBool,
     AtomicPtr,
-    Ordering,
 };
 
 pub use clock::*;
 
 use crate::arch::x86_64::apic::lapic::*;
-use crate::arch::x86_64::cpu::core::get_core_data;
-use crate::arch::x86_64::cpuid::*;
 use crate::arch::x86_64::timer;
-use crate::arch::x86_64::timer::hpet::read_hpet_direct;
-use crate::arch::x86_64::timer::tsc::read_tsc_direct;
-use crate::kernel::acpi::hpet::get_hpet_base_addr;
 use crate::kernel::sync::{
     KernelOnceCell,
     TicketLock,
 };
-use crate::memory::PAGER;
 
 pub static TIME_SRC_FQ: KernelOnceCell<usize> = KernelOnceCell::new();
 pub static LAPIC_FQ: KernelOnceCell<usize> = KernelOnceCell::new();
@@ -48,6 +41,4 @@ pub trait ClockSource {
     fn frequency(&self) -> usize;
 }
 
-pub fn init() {
-    crate::arch::x86_64::timer::init();
-}
+pub fn init() { crate::arch::x86_64::timer::init(); }

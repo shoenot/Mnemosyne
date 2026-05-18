@@ -1,5 +1,4 @@
 use core::mem::forget;
-use core::ops::Deref;
 
 use crate::arch::{
     disable_interrupts,

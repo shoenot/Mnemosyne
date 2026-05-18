@@ -3,14 +3,12 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use crate::arch::hcf;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::kernel::sync::{
     Mutex,
     TicketLock,
 };
-use crate::kernel::thread::ThreadState;
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::sleep;

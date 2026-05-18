@@ -1,4 +1,3 @@
-use core::ops::Add;
 use core::ptr::null_mut;
 
 use super::priority::ThreadPriority;

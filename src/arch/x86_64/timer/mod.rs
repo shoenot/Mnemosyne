@@ -1,4 +1,4 @@
-use core::sync::atomic::{AtomicPtr, Ordering};
+use core::sync::atomic::Ordering;
 
 pub(crate) mod hpet;
 mod realtime;
@@ -13,7 +13,14 @@ use crate::arch::x86_64::timer::hpet::read_hpet_direct;
 use crate::arch::x86_64::timer::tsc::read_tsc_direct;
 use crate::kernel::acpi::hpet::get_hpet_base_addr;
 use crate::kernel::time::{
-    ClockSource, GET_TIME_FN, HPET_BASE_ADDR, LAPIC_FQ, TIME_SOURCE, TIME_SRC_FQ, TimeSource, USE_TSC_DEADLINE,
+    ClockSource,
+    GET_TIME_FN,
+    HPET_BASE_ADDR,
+    LAPIC_FQ,
+    TIME_SOURCE,
+    TIME_SRC_FQ,
+    TimeSource,
+    USE_TSC_DEADLINE,
 };
 use crate::memory::PAGER;
 

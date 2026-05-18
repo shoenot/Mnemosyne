@@ -10,15 +10,11 @@ use crate::arch::x86_64::io::{
     outb,
 };
 use crate::kernel::acpi;
-use crate::kernel::sync::{
-    Semaphore,
-};
+use crate::kernel::sync::Semaphore;
+use crate::klog;
 use crate::util::bitwise::{
     set_bit,
     unset_bit,
-};
-use crate::{
-    klog,
 };
 
 static KEYBOARD_GSI: AtomicUsize = AtomicUsize::new(1);

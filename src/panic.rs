@@ -1,4 +1,3 @@
-use core::arch::asm;
 use core::panic::PanicInfo;
 
 use crate::drivers::logger::LOGGER;

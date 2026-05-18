@@ -1,6 +1,3 @@
-use alloc::alloc::dealloc;
-use alloc::vec::Vec;
-use core::alloc::Layout;
 use core::hint;
 use core::sync::atomic::{
     AtomicUsize,
@@ -14,7 +11,6 @@ use crate::kernel::cpu::{
     get_core_data_for,
 };
 use crate::kernel::sync::TicketLock;
-use crate::memory::GLOBAL_VMM;
 use crate::memory::paging::flush_tlb;
 
 pub struct TLBShootdownInfo {

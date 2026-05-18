@@ -1,5 +1,4 @@
 use core::cell::UnsafeCell;
-use core::hint::spin_loop;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::sync::atomic::{

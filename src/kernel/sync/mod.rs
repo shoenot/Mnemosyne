@@ -5,7 +5,6 @@ mod once;
 mod rwlock;
 mod semaphore;
 
-pub use condvar::*;
 pub use lock::*;
 pub use mutex::*;
 pub use once::*;

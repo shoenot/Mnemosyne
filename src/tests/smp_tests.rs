@@ -1,4 +1,3 @@
-use core::hint::unreachable_unchecked;
 use core::sync::atomic::{
     AtomicUsize,
     Ordering,
@@ -11,7 +10,6 @@ use crate::kernel::sync::{
 };
 use crate::time::sleep;
 use crate::{
-    TicketLock,
     get_core_data,
     klogln,
     terminate_thread,

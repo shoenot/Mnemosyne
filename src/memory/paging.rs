@@ -3,7 +3,6 @@
 use core::arch::asm;
 
 use super::pmm::*;
-use crate::kernel::sync::TicketLock;
 use crate::memory::{
     GLOBAL_PMM,
     PCAllocator,

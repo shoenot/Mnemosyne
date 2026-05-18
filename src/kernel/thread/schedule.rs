@@ -2,7 +2,6 @@
 
 use core::mem::size_of;
 use core::ptr::{
-    copy_nonoverlapping,
     null_mut,
     write_bytes,
 };

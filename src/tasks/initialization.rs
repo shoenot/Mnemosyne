@@ -1,4 +1,3 @@
-use alloc::sync::Arc;
 use core::sync::atomic::Ordering;
 
 use crate::arch::{
@@ -6,10 +5,9 @@ use crate::arch::{
     get_core_data,
 };
 use crate::drivers::keyboard::kbd_processor_thread;
-use crate::kernel::object::handle::AccessRights;
-use crate::kernel::object::invoke::Invocation;
 use crate::kernel::object::vfs::{
-    PRINCIPAL_HANDLE_TABLE, TestDevice, debug_dump_handles, init_vfs, kernel_register_obj, sys_close, sys_duplicate, sys_invoke, test_run
+    init_vfs,
+    test_run,
 };
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;

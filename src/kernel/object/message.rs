@@ -15,4 +15,3 @@ pub enum DirectoryMessage {
     Unlink { name: *const u8, name_len: usize },
     Lookup { name: *const u8, name_len: usize },
 }
-

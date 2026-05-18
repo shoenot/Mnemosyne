@@ -15,9 +15,7 @@ use crate::arch::{
     get_core_data,
     interrupts_enabled,
 };
-use crate::kernel::sync::{
-    TicketLock,
-};
+use crate::kernel::sync::TicketLock;
 use crate::kernel::thread::ThreadState;
 use crate::kernel::thread::dispatch::wake_thread;
 use crate::kernel::thread::wait::WaitQueue;

@@ -1,6 +1,5 @@
-use alloc::format;
-use alloc::vec::Vec;
 use alloc::collections::binary_heap::BinaryHeap;
+use alloc::vec::Vec;
 use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicPtr,
@@ -16,14 +15,16 @@ use crate::arch::x86_64::cpu::core::{
 };
 use crate::boot::MP_REQUEST;
 use crate::boot::smp::ap_entry;
-use crate::demo::test_thread;
-use crate::kernel::sync::{KernelOnceCell, TicketLock};
+use crate::kernel::sync::{
+    KernelOnceCell,
+    TicketLock,
+};
+use crate::kernel::thread::ThreadControlBlock;
 use crate::kernel::thread::schedule::SchedulerState;
 use crate::kernel::thread::workqueue::WorkQueue;
 use crate::kernel::time::callout::Callout;
-use crate::kernel::thread::ThreadControlBlock;
-use crate::memory::magazine::Magazine;
 use crate::klogln;
+use crate::memory::magazine::Magazine;
 
 #[repr(C)]
 pub struct KernelCoreData {

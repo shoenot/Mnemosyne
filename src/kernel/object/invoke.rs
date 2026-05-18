@@ -1,11 +1,13 @@
-use core::{fmt, str::Utf8Error};
+use alloc::format;
+use alloc::string::String;
+use core::fmt;
+use core::str::Utf8Error;
 
-use alloc::{format, string::String};
-
-use crate::kernel::object::{handle::{
-    AccessRights,
-    HandleID,
-}, message::{ChannelMessage, DirectoryMessage}};
+use crate::kernel::object::handle::AccessRights;
+use crate::kernel::object::message::{
+    ChannelMessage,
+    DirectoryMessage,
+};
 
 #[derive(Debug)]
 pub enum InvocationError {
@@ -27,11 +29,8 @@ impl fmt::Display for InvocationError {
 }
 
 impl From<Utf8Error> for InvocationError {
-    fn from(err: Utf8Error) -> Self {
-        InvocationError::InvalidArgument(format!("Invalid UTF-8 bytes passed ({})", err))
-    }
+    fn from(err: Utf8Error) -> Self { InvocationError::InvalidArgument(format!("Invalid UTF-8 bytes passed ({})", err)) }
 }
-
 
 #[repr(C)]
 #[derive(Debug)]

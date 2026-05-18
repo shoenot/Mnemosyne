@@ -9,7 +9,6 @@ use crate::arch::x86_64::cpu::fpu::{
 use crate::kernel::thread::ThreadControlBlock;
 use crate::kernel::thread::schedule::GRAVEYARD;
 use crate::kernel::time::sleep;
-use crate::klogln;
 
 pub extern "C" fn reaper_daemon(_arg: usize) -> ! {
     loop {
