@@ -29,7 +29,7 @@ use kernel::time;
 use memory::paging::get_cr3;
 use memory::{
     BlockSize,
-    BumpAllocator,
+    BOOTSTRAP_ALLOC
 };
 
 use crate::drivers::keyboard::init_keyboard_irq;
@@ -38,7 +38,6 @@ use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::datetime::epoch_to_datetime;
 use crate::memory::GLOBAL_PMM;
 
-pub static BOOTSTRAP_ALLOC: TicketLock<BumpAllocator> = TicketLock::new(BumpAllocator::new());
 
 #[unsafe(no_mangle)]
 pub extern "C" fn kmain() -> ! {

@@ -8,14 +8,8 @@ use crate::arch::{
 use crate::drivers::keyboard::kbd_processor_thread;
 use crate::kernel::object::handle::AccessRights;
 use crate::kernel::object::invoke::Invocation;
-use crate::kernel::object::table::{
-    PRINCIPAL_HANDLE_TABLE,
-    TestDevice,
-    debug_dump_handles,
-    kernel_register_obj,
-    sys_close,
-    sys_duplicate,
-    sys_invoke,
+use crate::kernel::object::vfs::{
+    PRINCIPAL_HANDLE_TABLE, TestDevice, debug_dump_handles, init_vfs, kernel_register_obj, sys_close, sys_duplicate, sys_invoke, test_run
 };
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
@@ -39,16 +33,8 @@ use crate::{
 pub extern "C" fn initializer(_arg: usize) -> ! {
     tests::memory_tests::run_pmm_tests();
 
-    let dev = Arc::new(TestDevice {});
-
-    let handle = kernel_register_obj(dev, AccessRights::READ);
-
-    match sys_invoke(handle, Invocation::Ping) {
-        Ok(_) => {}
-        Err(e) => klogln!("{}", e),
-    }
-
-    sys_close(handle).unwrap();
+    init_vfs();
+    test_run();
 
     spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER);
     spawn_kernel_thread(kbd_processor_thread as *const () as usize, 0, ThreadPriority::HIGH);

@@ -5,14 +5,12 @@ use core::sync::atomic::{
 };
 
 use crate::arch::x86_64::IO_APIC;
-use crate::arch::x86_64::apic::ioapic;
 use crate::arch::x86_64::io::{
     inb,
     outb,
 };
 use crate::kernel::acpi;
 use crate::kernel::sync::{
-    KernelOnceCell,
     Semaphore,
 };
 use crate::util::bitwise::{
@@ -21,7 +19,6 @@ use crate::util::bitwise::{
 };
 use crate::{
     klog,
-    klogln,
 };
 
 static KEYBOARD_GSI: AtomicUsize = AtomicUsize::new(1);
@@ -32,10 +29,19 @@ const IDT_VECTOR: u8 = 33;
 
 pub const KBD_BUFFER_SIZE: usize = 256;
 
-pub static mut KBD_BUFFER: [u8; KBD_BUFFER_SIZE] = [0; KBD_BUFFER_SIZE];
-pub static KBD_BUFFER_HEAD: AtomicUsize = AtomicUsize::new(0);
-pub static KBD_BUFFER_TAIL: AtomicUsize = AtomicUsize::new(0);
-pub static KBD_ITEMS_READY: Semaphore = Semaphore::new(0);
+static mut KBD_BUFFER: [u8; KBD_BUFFER_SIZE] = [0; KBD_BUFFER_SIZE];
+static KBD_BUFFER_HEAD: AtomicUsize = AtomicUsize::new(0);
+static KBD_BUFFER_TAIL: AtomicUsize = AtomicUsize::new(0);
+static KBD_ITEMS_READY: Semaphore = Semaphore::new(0);
+
+pub fn push_scancode(scancode: u8) {
+    unsafe {
+        let tail = KBD_BUFFER_TAIL.load(Ordering::Relaxed) % KBD_BUFFER_SIZE;
+        KBD_BUFFER[tail] = scancode;
+        KBD_BUFFER_TAIL.fetch_add(1, Ordering::Relaxed);
+        KBD_ITEMS_READY.signal();
+    }
+}
 
 fn check_madt_overrides() {
     let rsdp = acpi::rsdp::Rsdp::get();

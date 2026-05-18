@@ -1,11 +1,10 @@
 use core::cell::UnsafeCell;
-use core::hint::spin_loop;
+use core::fmt::Debug;
 use core::ops::{
     Deref,
     DerefMut,
 };
 use core::sync::atomic::{
-    AtomicBool,
     AtomicUsize,
     Ordering,
 };
@@ -17,7 +16,6 @@ use crate::arch::{
     interrupts_enabled,
 };
 use crate::kernel::sync::{
-    SpinLock,
     TicketLock,
 };
 use crate::kernel::thread::ThreadState;
@@ -185,5 +183,21 @@ impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
         if int_state {
             enable_interrupts()
         };
+    }
+}
+
+impl<T: Debug> Debug for RwLock<T> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        let mut d = f.debug_struct("RwLock");
+
+        let current_state = self.state.load(Ordering::Relaxed);
+        if current_state & WRITER_BIT != 0 {
+            d.field("data", &"<locked>");
+        } else {
+            unsafe {
+                d.field("data", &*self.data.get());
+            }
+        }
+        d.finish()
     }
 }

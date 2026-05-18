@@ -1,16 +1,17 @@
-use core::fmt;
+use core::{fmt, str::Utf8Error};
 
-use alloc::string::String;
+use alloc::{format, string::String};
 
-use crate::kernel::object::handle::{
+use crate::kernel::object::{handle::{
     AccessRights,
     HandleID,
-};
+}, message::{ChannelMessage, DirectoryMessage}};
 
 #[derive(Debug)]
 pub enum InvocationError {
     AccessDenied,
     InvalidHandle,
+    InvalidArgument(String),
     UnsupportedOperation,
 }
 
@@ -19,10 +20,18 @@ impl fmt::Display for InvocationError {
         match self {
             Self::AccessDenied => write!(f, "INVOCATION ERROR: Access denied."),
             Self::InvalidHandle => write!(f, "INVOCATION ERROR: Invalid handle."),
+            Self::InvalidArgument(s) => write!(f, "INVOCATION ERROR: Invalid argument: {}", s),
             Self::UnsupportedOperation => write!(f, "INVOCATION ERROR: Unsupported operation."),
         }
     }
 }
+
+impl From<Utf8Error> for InvocationError {
+    fn from(err: Utf8Error) -> Self {
+        InvocationError::InvalidArgument(format!("Invalid UTF-8 bytes passed ({})", err))
+    }
+}
+
 
 #[repr(C)]
 #[derive(Debug)]
@@ -33,22 +42,6 @@ pub enum Invocation {
     Directory(DirectoryMessage),
 }
 
-#[repr(C)]
-#[derive(Debug)]
-pub enum ChannelMessage {
-    PushSmall { data: [u8; 32], len: u8 },
-    PushLarge { vmo_handle: HandleID, offset: usize, len: usize },
-    Pull,
-}
-
-#[repr(C)]
-#[derive(Debug)]
-pub enum DirectoryMessage {
-    Link { name: String, handle_id: HandleID },
-    Unlink { name: String },
-    Lookup { name: String },
-}
-
 impl Invocation {
     pub fn required_rights(&self) -> AccessRights {
         match self {
@@ -57,6 +50,9 @@ impl Invocation {
             Invocation::Channel(ChannelMessage::PushSmall { .. }) => AccessRights::WRITE,
             Invocation::Channel(ChannelMessage::PushLarge { .. }) => AccessRights::WRITE,
             Invocation::Channel(ChannelMessage::Pull) => AccessRights::READ,
+            Invocation::Directory(DirectoryMessage::Link { .. }) => AccessRights::WRITE,
+            Invocation::Directory(DirectoryMessage::Unlink { .. }) => AccessRights::WRITE,
+            Invocation::Directory(DirectoryMessage::Lookup { .. }) => AccessRights::READ,
         }
     }
 }

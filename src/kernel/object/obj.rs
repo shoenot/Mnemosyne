@@ -19,7 +19,7 @@ use crate::kernel::object::invoke::{
 };
 
 pub trait KernelObject: Send + Sync + Debug {
-    fn invoke(&self, invocation: Invocation) -> Result<(), InvocationError>;
+    fn invoke(&self, invocation: Invocation) -> Result<usize, InvocationError>;
 
     fn type_name(&self) -> &'static str { "Unknown" }
 }

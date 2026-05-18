@@ -1,22 +1,15 @@
-use alloc::collections::binary_heap::BinaryHeap;
+use core::ops::{Deref, DerefMut};
 use core::arch::asm;
-use core::ptr::null_mut;
-use core::sync::atomic::Ordering;
 
 use super::gdt::*;
 use crate::BOOTSTRAP_ALLOC;
 use crate::arch::x86_64::apic::lapic::ApicMode;
-use crate::kernel::sync::TicketLock;
-use crate::kernel::thread::ThreadControlBlock;
 use crate::kernel::thread::dispatch::create_tcb;
 use crate::kernel::thread::priority::ThreadPriority;
-use crate::kernel::thread::schedule::SchedulerState;
-use crate::kernel::thread::workqueue::WorkQueue;
 use crate::kernel::time::callout::{
-    Callout,
     timer_daemon,
 };
-use crate::memory::magazine::Magazine;
+use crate::kernel::cpu::KernelCoreData;
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
@@ -27,11 +20,20 @@ pub struct CPULocalData {
     pub lapic_id: usize,
     pub core_gdt: CPULocalGDT,
     pub apic_mode: ApicMode,
-    pub scheduler: SchedulerState,
-    pub work_queue: WorkQueue,
-    pub callout_queue: TicketLock<BinaryHeap<Callout>>,
-    pub timer_daemon_tcb: *mut ThreadControlBlock,
-    pub magazine: Magazine,
+    pub kernel_data: KernelCoreData,
+}
+
+impl Deref for CPULocalData {
+    type Target = KernelCoreData;
+    fn deref(&self) -> &Self::Target {
+        &self.kernel_data
+    }
+}
+
+impl DerefMut for CPULocalData {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.kernel_data
+    }
 }
 
 pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -> *mut CPULocalData {
@@ -46,11 +48,7 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
         (*data_ptr).logical_id = logical_id;
         (*data_ptr).lapic_id = lapic_id;
         (*data_ptr).apic_mode = apic_mode;
-        (*data_ptr).scheduler = SchedulerState::new();
-        (*data_ptr).scheduler.init(logical_id);
-        (*data_ptr).callout_queue = TicketLock::new(BinaryHeap::new());
-        (*data_ptr).timer_daemon_tcb = null_mut();
-        (*data_ptr).magazine = Magazine::init();
+        core::ptr::write(&mut (*data_ptr).kernel_data, KernelCoreData::new(logical_id));
 
         data_ptr
     }
@@ -58,8 +56,10 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
 
 pub fn init_timer_daemon(data_ptr: *mut CPULocalData) {
     unsafe {
-        (*data_ptr).timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH).unwrap();
-        (*data_ptr).scheduler.push((*data_ptr).timer_daemon_tcb);
+        let data = &mut *data_ptr;
+        data.timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH).unwrap();
+        let timer_daemon_tcb = data.timer_daemon_tcb;
+        data.scheduler.push(timer_daemon_tcb);
     }
 }
 

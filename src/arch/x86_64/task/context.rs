@@ -1,3 +1,15 @@
+use alloc::alloc::alloc;
+use core::alloc::Layout;
+use core::ptr::copy_nonoverlapping;
+use core::sync::atomic::Ordering;
+
+use crate::arch::x86_64::cpu::fpu::{
+    CLEAN_LEGACY_FPU_CXT,
+    FPU_CXT_SIZE,
+    LegacyXtCxt,
+    USE_XSAVE,
+    gen_avx_dummy_fpu,
+};
 use crate::arch::x86_64::cpu::gdt::{
     KERNEL_CS,
     KERNEL_SS,
@@ -82,4 +94,56 @@ impl SwitchContext {
         self.rbp = 0;
         self.rip = rip;
     }
+}
+
+pub fn init_thread_stack(entry_point: usize, arg: usize, stack_base: usize, stack_size: usize) -> Result<(usize, *mut u8), crate::kernel::thread::ThreadError> {
+    let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
+
+    let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
+        gen_avx_dummy_fpu()?
+    } else {
+        let fpu_layout = Layout::from_size_align(fpu_size, 16)?;
+        let fpu_ptr = unsafe { alloc(fpu_layout) as *mut u8 };
+        if fpu_ptr.is_null() {
+            return Err(crate::kernel::thread::ThreadError::AllocationFailed);
+        }
+        let def = CLEAN_LEGACY_FPU_CXT.lock();
+        let default_fpu_ref = def.as_ref().expect("Clean FPU not initialized");
+        unsafe { copy_nonoverlapping(default_fpu_ref as *const LegacyXtCxt, fpu_ptr as *mut LegacyXtCxt, 1) };
+        fpu_ptr as *mut u8
+    };
+
+    let stack_top = stack_base + stack_size;
+    let context_addr = stack_top - size_of::<ThreadContext>();
+    let context_addr = context_addr & !0xF; // align to 16 bytes
+    let context = unsafe { &mut *(context_addr as *mut ThreadContext) };
+
+    context.init(entry_point as u64, (stack_top - 8) as u64, arg);
+
+    let switch_addr = context_addr - size_of::<SwitchContext>();
+    let switch_context = unsafe { &mut *(switch_addr as *mut SwitchContext) };
+
+    unsafe extern "C" {
+        fn thread_entry_stub();
+    }
+    switch_context.init((thread_entry_stub as *const ()) as usize);
+
+    Ok((switch_addr, fpu_ptr))
+}
+
+pub fn allocate_fpu_context_bootstrap() -> *mut u8 {
+    use crate::arch::x86_64::cpu::fpu::CLEAN_FPU_CXT;
+    use crate::BOOTSTRAP_ALLOC;
+    let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
+        let size = FPU_CXT_SIZE.load(Ordering::Relaxed);
+        let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(size, 64) as *mut u8;
+        let def = CLEAN_FPU_CXT.load(Ordering::Relaxed);
+        unsafe { copy_nonoverlapping(def, fpu_ptr, size) };
+        fpu_ptr
+    } else {
+        let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
+        let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(fpu_size, 16);
+        fpu_ptr as *mut u8
+    };
+    fpu_ptr
 }

@@ -33,6 +33,15 @@ pub struct WorkQueue {
     pub items_ready: Semaphore,
 }
 
+impl WorkQueue {
+    pub const fn new() -> Self {
+        WorkQueue {
+            items: TicketLock::new(WorkItemQueue { queue_length: AtomicUsize::new(0), head: null_mut(), tail: null_mut() }),
+            items_ready: Semaphore::new(0),
+        }
+    }
+}
+
 impl_queue_methods!(WorkItemQueue, WorkItem, head, tail);
 
 pub extern "C" fn worker_thread() -> ! {

@@ -1,5 +1,6 @@
 use alloc::format;
 use alloc::vec::Vec;
+use alloc::collections::binary_heap::BinaryHeap;
 use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicPtr,
@@ -16,8 +17,36 @@ use crate::arch::x86_64::cpu::core::{
 use crate::boot::MP_REQUEST;
 use crate::boot::smp::ap_entry;
 use crate::demo::test_thread;
-use crate::kernel::sync::KernelOnceCell;
+use crate::kernel::sync::{KernelOnceCell, TicketLock};
+use crate::kernel::thread::schedule::SchedulerState;
+use crate::kernel::thread::workqueue::WorkQueue;
+use crate::kernel::time::callout::Callout;
+use crate::kernel::thread::ThreadControlBlock;
+use crate::memory::magazine::Magazine;
 use crate::klogln;
+
+#[repr(C)]
+pub struct KernelCoreData {
+    pub scheduler: SchedulerState,
+    pub work_queue: WorkQueue,
+    pub callout_queue: TicketLock<BinaryHeap<Callout>>,
+    pub timer_daemon_tcb: *mut ThreadControlBlock,
+    pub magazine: Magazine,
+}
+
+impl KernelCoreData {
+    pub fn new(logical_id: usize) -> Self {
+        let mut scheduler = SchedulerState::new();
+        scheduler.init(logical_id);
+        Self {
+            scheduler,
+            work_queue: WorkQueue::new(),
+            callout_queue: TicketLock::new(BinaryHeap::new()),
+            timer_daemon_tcb: null_mut(),
+            magazine: Magazine::init(),
+        }
+    }
+}
 
 pub const MAX_CORES: usize = 256;
 pub static NUM_CORES: KernelOnceCell<usize> = KernelOnceCell::new();

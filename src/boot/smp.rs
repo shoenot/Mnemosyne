@@ -21,7 +21,6 @@ use crate::arch::x86_64::interrupts::idt::load_idt;
 use crate::kernel::time::USE_TSC_DEADLINE;
 use crate::memory::paging::load_cr3;
 use crate::{
-    klogln,
     terminate_thread,
 };
 

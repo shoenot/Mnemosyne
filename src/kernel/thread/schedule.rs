@@ -96,17 +96,7 @@ impl SchedulerState {
 
         unsafe { write_bytes(tcb_ptr as *mut u8, 0, size_of::<ThreadControlBlock>()) };
 
-        let fpu_ptr = if USE_XSAVE.load(Ordering::Relaxed) {
-            let size = FPU_CXT_SIZE.load(Ordering::Relaxed);
-            let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(size, 64) as *mut u8;
-            let def = CLEAN_FPU_CXT.load(Ordering::Relaxed);
-            unsafe { copy_nonoverlapping(def, fpu_ptr, size) };
-            fpu_ptr
-        } else {
-            let fpu_size = FPU_CXT_SIZE.load(Ordering::Relaxed);
-            let fpu_ptr = BOOTSTRAP_ALLOC.lock().alloc(fpu_size, 16);
-            fpu_ptr as *mut u8
-        };
+        let fpu_ptr = crate::arch::x86_64::task::context::allocate_fpu_context_bootstrap();
 
         unsafe {
             (*tcb_ptr).init(0, 0, 0, fpu_ptr, logical_id, ThreadPriority::MAXIMUM);

@@ -6,15 +6,10 @@ use crate::arch::x86_64::cpu::core::get_core_data;
 use crate::arch::x86_64::interrupts::idt::InterruptStackFrame;
 use crate::arch::x86_64::interrupts::shootdown::SHOOTDOWN_INFO;
 use crate::arch::x86_64::io;
-use crate::drivers::keyboard::{
-    KBD_BUFFER,
-    KBD_BUFFER_SIZE,
-    KBD_BUFFER_TAIL,
-    KBD_ITEMS_READY,
-};
+use crate::drivers::keyboard;
 use crate::kernel::thread::tcb::ThreadState;
 use crate::klogln;
-use crate::memory::GLOBAL_VMM;
+use crate::memory::handle_page_fault;
 use crate::memory::paging::flush_tlb;
 
 pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut InterruptStackFrame) {
@@ -23,8 +18,7 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
         asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
     }
 
-    let vmm = GLOBAL_VMM.read();
-    if !vmm.handle_page_fault(cr2 as usize, frame.error_code as usize) {
+    if !handle_page_fault(cr2 as usize, frame.error_code as usize) {
         panic!("FATAL: Unhandled Page Fault!");
     }
 }
@@ -73,16 +67,11 @@ pub(in crate::arch::x86_64::interrupts) fn keyboard_irq_handler() {
 
     // crate::drivers::serial::log_to_serial("KB INT\n");
 
-    unsafe {
-        for _ in 0..256 {
-            if (io::inb(0x64) & 0x1) == 0 {
-                break;
-            }
-            let tail = KBD_BUFFER_TAIL.load(Ordering::Relaxed) % KBD_BUFFER_SIZE;
-            KBD_BUFFER[tail] = io::inb(0x60);
-            KBD_BUFFER_TAIL.fetch_add(1, Ordering::Relaxed);
-            KBD_ITEMS_READY.signal();
+    for _ in 0..256 {
+        if unsafe { (io::inb(0x64) & 0x1) == 0 } {
+            break;
         }
+        keyboard::push_scancode(unsafe { io::inb(0x60) });
     }
 }
 
