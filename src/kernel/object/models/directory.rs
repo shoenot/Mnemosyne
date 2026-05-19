@@ -21,13 +21,25 @@ pub struct Directory {
     tree: RwLock<BTreeMap<Filename, HandleID>>,
 }
 
-#[derive(Debug, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Filename {
     name: Box<str>,
 }
 
 impl Borrow<str> for Filename {
     fn borrow(&self) -> &str { &self.name }
+}
+
+impl PartialEq<str> for Filename {
+    fn eq(&self, other: &str) -> bool {
+        &*self.name == other
+    }
+}
+
+impl PartialOrd<str> for Filename {
+    fn partial_cmp(&self, other: &str) -> Option<core::cmp::Ordering> {
+        self.name.as_ref().partial_cmp(other)
+    }
 }
 
 impl Filename {

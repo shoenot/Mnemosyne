@@ -1,3 +1,4 @@
+use core::fmt::Debug;
 use core::sync::atomic::{
     AtomicIsize,
     Ordering,
@@ -17,6 +18,12 @@ use crate::kernel::thread::wait::WaitQueue;
 pub struct Semaphore {
     counter: AtomicIsize,
     wait_queue: TicketLock<WaitQueue>,
+}
+
+impl Debug for Semaphore {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "Semaphore counter: {:?}", self.counter)
+    }
 }
 
 unsafe impl Sync for Semaphore {}

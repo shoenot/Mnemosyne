@@ -17,6 +17,7 @@ use super::serial::{
     log_to_serial,
 };
 use crate::boot::FRAMEBUFFER_REQUEST;
+use crate::drivers::graphics::WriterLine;
 use crate::kernel::sync::{
     KernelOnceCell,
     TicketLock,
@@ -56,8 +57,7 @@ impl Logger {
         self.graphics_writer.write(GraphicsWriter {
             current_line: 0,
             lim_lines: ((fb.height / 16) - 2) as u32,
-            current_offset: 0,
-            max_offset: 0,
+            line: WriterLine::new(),
             font: FONT.get_or_init(|| load_font()),
             fb: SyncFramebuffer(fb),
         });

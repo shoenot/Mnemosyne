@@ -1,6 +1,7 @@
 mod scancodes;
 use scancodes::*;
 
+use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicBool,
     AtomicUsize,
@@ -12,9 +13,14 @@ use crate::arch::x86_64::io::{
     inb,
     outb,
 };
+use crate::drivers::logger::LOGGER;
 use crate::kernel::acpi;
+use crate::kernel::object::handle::HandleID;
+use crate::kernel::object::invoke::Invocation;
+use crate::kernel::object::op::ChannelOp;
+use crate::kernel::object::vfs::sys_invoke;
 use crate::kernel::sync::Semaphore;
-use crate::klog;
+use crate::{klog, klogln};
 use crate::util::bitwise::{
     set_bit,
     unset_bit,
@@ -82,7 +88,8 @@ pub fn init_keyboard_irq() {
 }
 
 #[allow(unused)]
-pub extern "C" fn kbd_processor_thread() -> ! {
+pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
+    let chan_handle = HandleID(chan_handle_id);
     let mut shift_held = false;
     let mut caps_lock = false;
     let mut is_extended = false;
@@ -131,7 +138,38 @@ pub extern "C" fn kbd_processor_thread() -> ! {
             }
 
             if c != '\0' {
-                klog!("{}", c);
+                if c == '\n' {
+                    let mut byte_buffer = [0u8; 64];
+                    let mut byte_len = 0;
+
+                    {
+                        let mut logger = LOGGER.lock();
+                        let writer = unsafe { logger.graphics_writer.assume_init_mut() };
+
+                        for i in 0..writer.line.len {
+                            let ch = writer.line.buffer[i];
+                            let char_len = ch.len_utf8();
+                            if byte_len + char_len <= 64 {
+                                ch.encode_utf8(&mut byte_buffer[byte_len..]);
+                                byte_len += char_len;
+                            }
+                        }
+                        writer.erase_cursor(writer.line.len as u32);
+                        writer.line.clear();
+                    }
+                    klogln!("");
+
+                    let push_op = Invocation::Channel(ChannelOp::PushSmall { 
+                        data: byte_buffer, 
+                        len: byte_len as u8,
+                    });
+                    let _ = sys_invoke(chan_handle, push_op);
+
+                    let pull_op = Invocation::Channel(ChannelOp::Pull { buffer_ptr: null_mut() });
+                    let _ = sys_invoke(chan_handle, pull_op);
+                } else {
+                    klog!("{}", c);
+                }
             }
         }
 

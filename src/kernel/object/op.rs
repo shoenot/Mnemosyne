@@ -3,9 +3,9 @@ use crate::kernel::object::handle::HandleID;
 #[repr(C)]
 #[derive(Debug)]
 pub enum ChannelOp {
-    PushSmall { data: [u8; 32], len: u8 },
+    PushSmall { data: [u8; 64], len: u8 }, 
     PushLarge { vmo_handle: HandleID, offset: usize, len: usize },
-    Pull,
+    Pull { buffer_ptr: *mut u8 },
 }
 
 #[repr(C)]

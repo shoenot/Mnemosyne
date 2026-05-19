@@ -12,13 +12,14 @@ use crate::kernel::object::obj::{
     KernelHandleTable,
     KernelObject,
 };
+use crate::kernel::object::op::DirectoryOp;
 use crate::kernel::sync::RwLock;
 use crate::{
-    klogln,
+    klog, klogln
 };
 
 pub static PRINCIPAL_HANDLE_TABLE: RwLock<KernelHandleTable> = RwLock::new(KernelHandleTable::new());
-
+pub static ROOT_DIRECTORY: RwLock<Option<HandleID>> = RwLock::new(None);
 
 pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights) -> HandleID {
     let mut table = PRINCIPAL_HANDLE_TABLE.write();
@@ -49,5 +50,16 @@ pub fn sys_duplicate(handle: HandleID, requested_rights: AccessRights) -> Result
 pub fn debug_dump_handles() {
     let table = PRINCIPAL_HANDLE_TABLE.read();
     klogln!("{:#?}", *table);
+}
+
+pub fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
+    klog!("Linking {}... ", name);
+    // mount '/dev' inside '/'
+    sys_invoke(
+        root,
+        Invocation::Directory(DirectoryOp::Link { name: name.as_ptr(), name_len: name.len(), handle_id: handle }),
+    )
+    .expect("Link failed.");
+    klogln!("Link success!");
 }
 

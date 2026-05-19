@@ -16,6 +16,7 @@ pub enum InvocationError {
     InvalidHandle,
     InvalidArgument(String),
     UnsupportedOperation,
+    BufferFull,
 }
 
 impl fmt::Display for InvocationError {
@@ -25,6 +26,7 @@ impl fmt::Display for InvocationError {
             Self::InvalidHandle => write!(f, "INVOCATION ERROR: Invalid handle."),
             Self::InvalidArgument(s) => write!(f, "INVOCATION ERROR: Invalid argument: {}", s),
             Self::UnsupportedOperation => write!(f, "INVOCATION ERROR: Unsupported operation."),
+            Self::BufferFull => write!(f, "INVOCATION ERROR: Buffer full."),
         }
     }
 }
@@ -50,7 +52,7 @@ impl Invocation {
             Invocation::GetInfo => AccessRights::READ,
             Invocation::Channel(ChannelOp::PushSmall { .. }) => AccessRights::WRITE,
             Invocation::Channel(ChannelOp::PushLarge { .. }) => AccessRights::WRITE,
-            Invocation::Channel(ChannelOp::Pull) => AccessRights::READ,
+            Invocation::Channel(ChannelOp::Pull { .. }) => AccessRights::READ,
             Invocation::Directory(DirectoryOp::Link { .. }) => AccessRights::WRITE,
             Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::WRITE,
             Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,

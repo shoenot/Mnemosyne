@@ -7,6 +7,7 @@ use core::sync::atomic::{
 use crate::impl_queue_methods;
 use crate::kernel::thread::ThreadControlBlock;
 
+#[derive(Debug)]
 pub struct WaitQueue {
     pub queue_length: AtomicUsize,
     head: *mut ThreadControlBlock,

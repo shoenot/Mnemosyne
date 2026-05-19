@@ -74,14 +74,14 @@ pub struct SyncFramebuffer(pub &'static Framebuffer);
 unsafe impl Send for SyncFramebuffer {}
 unsafe impl Sync for SyncFramebuffer {}
 
-enum RenderLine {
-    Append(char),
-    Insert{start: usize}, // start idx
-    BspcMid{start: usize, erase: usize},
-    BspcEnd,
-}
+const MAX_COLS: usize = 64;
 
-const MAX_COLS: usize = 256;
+pub enum RenderLine {
+    Append(char),
+    Insert { start: usize },
+    BspcEnd,
+    BspcMid { start: usize, erase: usize },
+}
 
 pub struct WriterLine {
     pub buffer: [char; MAX_COLS],
@@ -90,11 +90,11 @@ pub struct WriterLine {
 }
 
 impl WriterLine {
-    const fn new() -> Self {
+    pub const fn new() -> Self {
         Self { buffer: ['\0'; MAX_COLS], len: 0, cursor: 0 }
     }
 
-    fn write_char(&mut self, c: char) -> Option<RenderLine> {
+    pub fn write_char(&mut self, c: char) -> Option<RenderLine> {
         if self.len >= MAX_COLS {
             return None;
         }
@@ -106,7 +106,7 @@ impl WriterLine {
             Some(RenderLine::Append(c))
         } else {
             for i in (self.cursor..self.len).rev() {
-                self.buffer[i+1] = self.buffer[i];
+                self.buffer[i + 1] = self.buffer[i];
             }
 
             self.buffer[self.cursor] = c;
@@ -118,7 +118,7 @@ impl WriterLine {
         }
     }
 
-    fn backspace(&mut self) -> Option<RenderLine> {
+    pub fn backspace(&mut self) -> Option<RenderLine> {
         if self.cursor == 0 {
             return None;
         }
@@ -130,7 +130,7 @@ impl WriterLine {
         } else {
             let erase = self.len - 1;
             for i in self.cursor..self.len {
-                self.buffer[i-1] = self.buffer[i];
+                self.buffer[i - 1] = self.buffer[i];
             }
 
             self.cursor -= 1;
@@ -139,6 +139,22 @@ impl WriterLine {
 
             Some(RenderLine::BspcMid { start, erase })
         }
+    }
+
+    pub fn delete(&mut self) -> Option<RenderLine> {
+        if self.cursor == self.len {
+            return None;
+        }
+
+        let erase = self.len - 1;
+        for i in self.cursor + 1..self.len {
+            self.buffer[i - 1] = self.buffer[i];
+        }
+
+        self.len -= 1;
+        let start = self.cursor;
+        
+        Some(RenderLine::BspcMid { start, erase })
     }
 
     pub fn cursor_back(&mut self) {
@@ -160,8 +176,7 @@ impl WriterLine {
 pub struct GraphicsWriter {
     pub current_line: u32,
     pub lim_lines: u32,
-    pub current_offset: u32,
-    pub max_offset: u32,
+    pub line: WriterLine,
     pub font: &'static Psf<'static>,
     pub fb: SyncFramebuffer,
 }
@@ -169,93 +184,106 @@ pub struct GraphicsWriter {
 impl core::fmt::Write for GraphicsWriter {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for c in s.chars() {
+            self.erase_cursor(self.line.cursor as u32);
+
             match c {
                 '\n' => {
+                    self.inc_line();
+                    self.line.clear();
                 }, 
                 '\x08' => { // backspace
+                    if let Some(render_action) = self.line.backspace() {
+                        self.apply_render(render_action);
+                    }
                 },
                 '\x7F' => { // delete
+                    if let Some(render_action) = self.line.delete() {
+                        self.apply_render(render_action);
+                    }
                 },
                 '\x13' => { // left arrow 
+                    self.line.cursor_back();
                 },
                 '\x14' => { // right arrow 
-                    self.
+                    self.line.cursor_fwd();
                 },
-                _ => {
+                _ => { // standard character
+                    if let Some(render_action) = self.line.write_char(c) {
+                        self.apply_render(render_action);
+                    }
                 }
             }
+
+            self.draw_cursor(self.line.cursor as u32);
         }
         Ok(())
     }
 }
 
 impl GraphicsWriter {
-    fn scroll(&mut self) {
-        let fb_base_ptr = self.fb.0.address() as *mut u8;
-        let pitch = self.fb.0.pitch;
-
-        let active_height = (self.fb.0.height / 16) * 16;
-
-        let pixel_lines = active_height - 16;
-        let block_size = pixel_lines as u64 * pitch as u64;
-
-        let src = (fb_base_ptr as u64 + (16 * pitch as u64)) as *const u8;
-        unsafe {
-            copy(src, fb_base_ptr, block_size as usize);
+    fn apply_render(&mut self, action: RenderLine) {
+        match action {
+            RenderLine::Append(c) => {
+                let x = (self.line.cursor - 1) as u32;
+                putchar(c, x, self.current_line, self.font, self.fb.0);
+            }
+            RenderLine::Insert { start } => {
+                for i in start..self.line.len {
+                    erasechar(i as u32, self.current_line, self.fb.0);
+                    putchar(self.line.buffer[i], i as u32, self.current_line, self.font, self.fb.0);
+                }
+            }
+            RenderLine::BspcEnd => {
+                erasechar(self.line.cursor as u32, self.current_line, self.fb.0);
+            }
+            RenderLine::BspcMid { start, erase } => {
+                for i in start..self.line.len {
+                    erasechar(i as u32, self.current_line, self.fb.0);
+                    putchar(self.line.buffer[i], i as u32, self.current_line, self.font, self.fb.0);
+                }
+                erasechar(erase as u32, self.current_line, self.fb.0);
+            }
         }
-
-        let bottom_line = (fb_base_ptr as u64 + block_size) as *mut u8;
-        unsafe {
-            write_bytes(bottom_line, 0, (16 * pitch) as usize);
-        }
-    }
-
-    fn inc_offset(&mut self) {
-        self.erase_cursor(self.current_offset); 
-        self.current_offset += 1;
-        self.max_offset = cmp::max(self.max_offset, self.current_offset);
-        self.draw_cursor(self.current_offset);
-    }
-
-    fn inc_till_max_offset(&mut self) {
-        if self.current_offset < self.max_offset {
-            self.erase_cursor(self.current_offset); 
-            self.current_offset += 1;
-            self.max_offset = cmp::max(self.max_offset, self.current_offset);
-            self.draw_cursor(self.current_offset);
-        }
-    }
-
-    fn dec_offset(&mut self) {
-        self.erase_cursor(self.current_offset); 
-        self.current_offset = self.current_offset.saturating_sub(1);
-        self.draw_cursor(self.current_offset);
     }
 
     fn inc_line(&mut self) {
-        self.erase_cursor(self.current_offset);
         if self.current_line < self.lim_lines {
             self.current_line += 1;
         } else {
             self.scroll();
         }
-        self.current_offset = 0;
-        self.max_offset = 0;
-        self.draw_cursor(self.current_offset);
+    }
+
+    fn scroll(&mut self) {
+        let fb_base_ptr = self.fb.0.address() as *mut u8;
+        let pitch = self.fb.0.pitch;
+        let active_height = (self.fb.0.height / 16) * 16;
+        let pixel_lines = active_height - 16;
+        let block_size = pixel_lines as u64 * pitch as u64;
+
+        let src = (fb_base_ptr as u64 + (16 * pitch as u64)) as *const u8;
+        unsafe {
+            core::ptr::copy(src, fb_base_ptr, block_size as usize);
+        }
+
+        let bottom_line = (fb_base_ptr as u64 + block_size) as *mut u8;
+        unsafe {
+            core::ptr::write_bytes(bottom_line, 0, (16 * pitch) as usize);
+        }
     }
 
     fn draw_cursor(&mut self, offset: u32) {
         let y = self.current_line * 16;
         let x = offset * 8;
-        for ypix in y..(y+16) {
+        for ypix in y..(y + 16) {
             putpixel(x, ypix, 0xFFFFFF, self.fb.0);
         }
     }
 
-    fn erase_cursor(&mut self, offset: u32) {
+    pub fn erase_cursor(&mut self, offset: u32) {
         let y = self.current_line * 16;
         let x = offset * 8;
-        for ypix in y..(y+16) {
+        for ypix in y..(y + 16) {
             putpixel(x, ypix, 0x000000, self.fb.0);
         }
     }

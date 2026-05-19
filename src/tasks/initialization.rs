@@ -5,15 +5,16 @@ use crate::arch::{
     get_core_data,
 };
 use crate::drivers::keyboard::kbd_processor_thread;
-use crate::tests::file_tests::{
-    init_vfs, load_ramdisk_modules, test_run
-};
+use crate::kernel::object::models::channel::init_ipc_pipeline;
+use crate::kernel::object::vfs::{debug_dump_handles, kernel_register_obj};
+use crate::kernel::shell::kernel_shell_thread;
 use crate::kernel::thread::dispatch::spawn_kernel_thread;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::thread::reap::reaper_daemon;
 use crate::kernel::time;
 use crate::kernel::time::datetime::epoch_to_datetime;
 use crate::kernel::time::sleep;
+use crate::tasks::vfs_init::init_vfs;
 use crate::tests::smp_tests::{
     MUTEX_RACE,
     THREADS_FINISHED,
@@ -31,10 +32,13 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     tests::memory_tests::run_pmm_tests();
 
     init_vfs();
-    test_run();
 
     spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER);
-    spawn_kernel_thread(kbd_processor_thread as *const () as usize, 0, ThreadPriority::HIGH);
+
+    let (kbd_handle, shell_handle) = init_ipc_pipeline();
+
+    spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_handle.0, ThreadPriority::HIGH);
+    spawn_kernel_thread(kernel_shell_thread as *const () as usize, shell_handle.0, ThreadPriority::MEDIUM);
 
     terminate_thread!();
 }
