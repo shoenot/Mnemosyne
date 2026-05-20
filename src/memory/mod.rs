@@ -5,6 +5,7 @@ pub mod magazine;
 pub mod paging;
 mod pmm;
 mod vmm;
+pub mod vmo;
 
 pub use bootalloc::*;
 use heap::*;
@@ -43,7 +44,7 @@ pub static ALLOCATOR: PCAllocator = PCAllocator {};
 pub static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
 pub static GLOBAL_VMM: RwLock<VirtMemManager> = RwLock::new(VirtMemManager::new(&PAGER, &ALLOCATOR));
 
-pub fn handle_page_fault(addr: usize, error_code: usize) -> bool { GLOBAL_VMM.read().handle_page_fault(addr, error_code) }
+pub fn handle_page_fault(addr: usize, error_code: usize) -> Result<(), FaultError> { GLOBAL_VMM.read().handle_page_fault(addr, error_code) }
 
 pub struct PCAllocator {}
 

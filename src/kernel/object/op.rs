@@ -21,3 +21,11 @@ pub enum DirectoryOp {
 pub enum FileOp {
     Read { offset: usize, buffer_ptr: *mut u8, len: usize },
 }
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum VmoOp {
+    GetPage { offset: usize },
+    Resize { new_size: usize },
+    Clone { offset: usize, len: usize },
+}

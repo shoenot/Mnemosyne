@@ -7,7 +7,8 @@ use crate::kernel::object::handle::AccessRights;
 use crate::kernel::object::op::{
     ChannelOp,
     DirectoryOp,
-    FileOp
+    FileOp, 
+    VmoOp
 };
 
 #[derive(Debug)]
@@ -43,6 +44,7 @@ pub enum Invocation {
     Channel(ChannelOp),
     Directory(DirectoryOp),
     File(FileOp),
+    Vmo(VmoOp),
 }
 
 impl Invocation {
@@ -57,6 +59,9 @@ impl Invocation {
             Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::WRITE,
             Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
+            Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
+            Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
+            Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
         }
     }
 }

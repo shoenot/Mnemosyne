@@ -18,8 +18,11 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
         asm!("mov {}, cr2", out(reg) cr2, options(nomem, nostack, preserves_flags));
     }
 
-    if !handle_page_fault(cr2 as usize, frame.error_code as usize) {
-        panic!("FATAL: Unhandled Page Fault!");
+    match handle_page_fault(cr2 as usize, frame.error_code as usize) {
+        Ok(_) => {},
+        Err(e) => {
+            panic!("Fatal unhandled page fault: {:?}", e);
+        }
     }
 }
 

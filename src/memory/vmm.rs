@@ -5,12 +5,16 @@ use alloc::alloc::{
     alloc,
     dealloc,
 };
+use alloc::sync::Arc;
 
 // TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
 // ipis.
 use super::paging::*;
 use super::pmm::*;
 use crate::arch::x86_64::interrupts::shootdown::shootdown;
+use crate::kernel::object::invoke::{Invocation, InvocationError};
+use crate::kernel::object::obj::KernelObject;
+use crate::kernel::object::op::VmoOp;
 use crate::kernel::sync::TicketLock;
 use crate::memory::PCAllocator;
 
@@ -24,6 +28,14 @@ pub static VM_FLAG_WRITE_THROUGH: usize = 1 << 6;
 
 static VM_BASE_ADDR: usize = 0x4000_0000;
 static VM_MAX_ALLOWED: usize = 0x0000_7FFF_FFFF_F000;
+
+#[derive(Debug)]
+pub enum FaultError {
+    Invocation(InvocationError),
+    InvalidAddress,
+    AccessDenied,
+    MappingFailed,
+}
 
 fn convert_vm_flags(flags: usize) -> usize {
     let mut writable = false;
@@ -59,6 +71,8 @@ pub struct VmaNode {
     pub flags: usize,
     pub prev: Option<*mut VmaNode>,
     pub next: Option<*mut VmaNode>,
+    pub backing_vmo: Option<Arc<dyn KernelObject>>,
+    pub vmo_offset: usize,
 }
 
 pub fn allocate_node() -> *mut VmaNode {
@@ -86,7 +100,12 @@ fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 impl VirtMemManager {
     pub const fn new(pager: &'static TicketLock<Pager>, allocator: &'static PCAllocator) -> Self { Self { head: None, pager, allocator } }
 
-    pub fn mmap(&mut self, mut size: usize, flags: usize) -> Option<usize> {
+    // temp for now
+    pub fn mmap(&mut self, size: usize, flags: usize) -> Option<usize> {
+        self.mmap_internal(size, flags, None, 0)
+    }
+
+    pub fn mmap_internal(&mut self, mut size: usize, flags: usize, backing_vmo: Option<Arc<dyn KernelObject>>, vmo_offset: usize) -> Option<usize> {
         let mask = if flags & VM_FLAG_HUGE != 0 { HUGE_PAGE_SIZE - 1 } else { NORMAL_PAGE_SIZE - 1 };
 
         size = (size + mask) & !mask;
@@ -142,7 +161,11 @@ impl VirtMemManager {
         if let Some(addr) = gap_start {
             unsafe {
                 let new_node_ptr = allocate_node();
-                *new_node_ptr = VmaNode { start: addr, size, flags, prev: prev_ptr, next: current_ptr };
+                *new_node_ptr = VmaNode { 
+                    start: addr, size, flags, 
+                    prev: prev_ptr, next: current_ptr,
+                    backing_vmo, vmo_offset,
+                };
 
                 if let Some(prev) = prev_ptr {
                     (*prev).next = Some(new_node_ptr);
@@ -277,7 +300,7 @@ impl VirtMemManager {
         Ok(())
     }
 
-    pub fn handle_page_fault(&self, addr: usize, error_code: usize) -> bool {
+    pub fn handle_page_fault(&self, addr: usize, error_code: usize) -> Result<(), FaultError> {
         let mut target_vma_ptr = None;
         let mut current_ptr = self.head;
 
@@ -292,16 +315,18 @@ impl VirtMemManager {
             }
         }
 
-        let target_vma = match target_vma_ptr {
-            Some(ptr) => unsafe { &*ptr },
-            None => return false,
-        };
+        let target_vma = target_vma_ptr
+            .map(|ptr| unsafe { &*ptr })
+            .ok_or(FaultError::InvalidAddress)?;  // if vma not found that means segfault
+
+        let is_write = (error_code & (1 << 1)) != 0;
+        let vma_allows_write = (target_vma.flags & VM_FLAG_WRITE) != 0;
 
         let is_write = (error_code & (1 << 1)) != 0;
         let vma_allows_write = (target_vma.flags & VM_FLAG_WRITE) != 0;
 
         if is_write && !vma_allows_write {
-            return false; // tried writing to a read only vma which is very illegal and a real fault
+            return Err(FaultError::AccessDenied); // tried writing to a read only vma which is very illegal and a real fault
         }
 
         let is_huge = target_vma.flags & VM_FLAG_HUGE != 0;
@@ -310,18 +335,28 @@ impl VirtMemManager {
 
         let fault_page = addr & !mask;
         let virt = VirtAddress(fault_page as u64);
+        let offset_in_vma = fault_page - target_vma.start;
+        let vmo_offset = offset_in_vma + target_vma.vmo_offset;
 
-        let phys_frame = self.allocator.alloc(block_size) as u64;
+        let phys_frame = if let Some(ref obj) = target_vma.backing_vmo {
+            // if vmo already has the page then use it 
+            match obj.invoke(Invocation::Vmo(VmoOp::GetPage { offset: vmo_offset })) {
+                Ok(addr) => addr,
+                Err(e) => return Err(FaultError::Invocation(e)),
+            }
+        } else {
+            // else get it from the allocator
+            self.allocator.alloc(block_size) as usize
+        };
 
         let hw_flags = convert_vm_flags(target_vma.flags) as u64;
         let mut pagerlock = self.pager.lock();
         pagerlock
-            .map_page(virt, phys_frame, hw_flags, *HHDMOFFSET as u64, block_size)
+            .map_page(virt, phys_frame as u64, hw_flags, *HHDMOFFSET as u64, block_size)
             .expect("FATAL: Pager failed to map memory during Page Fault!");
         drop(pagerlock);
 
         flush_tlb(addr as u64);
-
-        true
+        Ok(())
     }
 }
