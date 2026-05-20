@@ -24,6 +24,7 @@ use crate::kernel::time::{
     TimeFn,
     USE_TSC_DEADLINE,
 };
+use crate::util::write_to_msr;
 
 static BOOT_RTC_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
 static BOOT_TIMESTAMP: KernelOnceCell<i64> = KernelOnceCell::new();
@@ -52,12 +53,9 @@ pub fn arm_sleep_ns(ns: usize) {
 
             let current = ((hi as usize) << 32) | (lo as usize);
             let target = current + tsc_ticks;
-            let tgt_lo = (target & 0xFFFF_FFFF) as u32;
-            let tgt_hi = (target >> 32) as u32;
 
             // set deadline
-            asm!("wrmsr",
-                in("ecx") IA32_TSC_DEADLINE, in("eax") tgt_lo, in("edx") tgt_hi, options(nomem, nostack));
+            write_to_msr(target as u64, IA32_TSC_DEADLINE);
         }
     } else {
         let lapic_fq = *LAPIC_FQ;
@@ -79,12 +77,9 @@ pub fn arm_sleep_ticks(ticks: usize) {
 
             let current = ((hi as usize) << 32) | (lo as usize);
             let target = current + ticks;
-            let tgt_lo = (target & 0xFFFF_FFFF) as u32;
-            let tgt_hi = (target >> 32) as u32;
 
             // set deadline
-            asm!("wrmsr",
-                in("ecx") IA32_TSC_DEADLINE, in("eax") tgt_lo, in("edx") tgt_hi, options(nomem, nostack));
+            write_to_msr(target as u64, IA32_TSC_DEADLINE);
         }
     } else {
         let global_fq = *TIME_SRC_FQ;

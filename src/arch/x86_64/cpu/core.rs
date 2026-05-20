@@ -11,12 +11,19 @@ use crate::kernel::cpu::KernelCoreData;
 use crate::kernel::thread::dispatch::create_tcb;
 use crate::kernel::thread::priority::ThreadPriority;
 use crate::kernel::time::callout::timer_daemon;
+use crate::util::bitwise::set_bit;
+use crate::util::{
+    read_from_msr,
+    write_to_msr,
+};
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
 #[repr(C)]
 pub struct CPULocalData {
     pub self_ptr: *mut CPULocalData,
+    pub saved_user_rsp: usize,  // offset 0x08
+    pub kernel_rsp: usize,      // offset 0x10
     pub logical_id: usize,
     pub lapic_id: usize,
     pub core_gdt: CPULocalGDT,
@@ -72,11 +79,7 @@ pub fn activate_core(data_ptr: *mut CPULocalData) {
 
         let data_addr = data_ptr as usize;
         // write GS
-        asm!("wrmsr", 
-            in("ecx") KERNEL_GS_BASE,
-            in("edx") (data_addr >> 32) as u32,
-            in("eax") data_addr as u32,
-            options(nomem, nostack, preserves_flags));
+        write_to_msr(data_addr as u64, KERNEL_GS_BASE);
     }
 }
 

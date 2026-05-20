@@ -96,6 +96,26 @@ impl SwitchContext {
     }
 }
 
+#[repr(C)]
+pub(crate) struct SyscallFrame {
+    pub r15: usize,
+    pub r14: usize,
+    pub r13: usize,
+    pub r12: usize,
+    pub r11: usize,
+    pub r10: usize,
+    pub r9: usize,
+    pub r8: usize,
+    pub rbp: usize,
+    pub rdi: usize,
+    pub rsi: usize,
+    pub rdx: usize,
+    pub rcx: usize,
+    pub rbx: usize,
+    pub rax: usize,
+    pub user_rsp: usize,
+}
+
 pub fn init_thread_stack(
     entry_point: usize, arg: usize, stack_base: usize, stack_size: usize,
 ) -> Result<(usize, *mut u8), crate::kernel::thread::ThreadError> {

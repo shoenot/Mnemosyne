@@ -6,9 +6,11 @@ use core::ptr::{
 };
 
 use super::pic8259;
+use crate::demo::run_demo;
 use crate::kernel::sync::KernelOnceCell;
 use crate::memory::HHDMOFFSET;
 use crate::util::bitwise::check_bit;
+use crate::util::{read_from_msr, write_to_msr};
 
 const SV_OFFSET: usize = 0xF0;
 const EOI_OFFSET: usize = 0xB0;
@@ -53,27 +55,15 @@ pub(crate) enum TimerMode {
 }
 
 pub(in crate::arch::x86_64) fn get_apic_base() -> usize {
-    let (lower, upper): (u32, u32);
     unsafe {
-        asm!("rdmsr", 
-            in("ecx") IA32_APIC_BASE,
-            out("eax") lower,
-            out("edx") upper)
+        (read_from_msr(IA32_APIC_BASE as u32) & !0xFFF) as usize
     }
-    let base_phys = ((upper as u64) << 32) | (lower as u64);
-    (base_phys & !0xFFF) as usize
 }
 
 pub(in crate::arch::x86_64) fn get_apic_flags() -> usize {
-    let (lower, upper): (u32, u32);
     unsafe {
-        asm!("rdmsr", 
-            in("ecx") IA32_APIC_BASE,
-            out("eax") lower,
-            out("edx") upper)
+        (read_from_msr(IA32_APIC_BASE as u32) & 0xFFF) as usize
     }
-    let base_phys = ((upper as u64) << 32) | (lower as u64);
-    (base_phys & 0xFFF) as usize
 }
 
 pub(in crate::arch::x86_64) fn send_apic_eoi() {
@@ -173,24 +163,14 @@ impl X2ApicDriver {
 
     pub(crate) unsafe fn write_reg(&self, offset: usize, value: u32) {
         unsafe {
-            asm!("wrmsr",
-                 in("ecx") self.base_addr + (offset >> 4),
-                 in("edx") 0,
-                 in("eax") value,
-                 options(nomem, nostack, preserves_flags))
+            write_to_msr(value as u64, (self.base_addr + (offset >> 4)) as u32);
         }
     }
 
     pub(crate) unsafe fn read_reg(&self, offset: usize) -> u32 {
-        let out: u32;
         unsafe {
-            asm!("rdmsr",
-                 in("ecx") self.base_addr + (offset >> 4),
-                 out("edx") _,
-                 out("eax") out,
-                 options(nomem, nostack, preserves_flags))
+            read_from_msr((self.base_addr + (offset >> 4)) as u32) as u32
         }
-        out
     }
 }
 
@@ -227,12 +207,9 @@ impl ApicDriver for X2ApicDriver {
     }
 
     fn send_ipi(&self, target_id: u32, vector: u32) {
+        let val = ((target_id as u64) << 32) | vector as u64;
         unsafe {
-            asm!("wrmsr",
-                in("ecx") 0x830,
-                in("edx") target_id,
-                in("eax") vector,
-            );
+            write_to_msr(val, 0x830);
         }
     }
 }
@@ -245,11 +222,7 @@ pub fn check_enable_x2apic() -> bool {
     if check_bit(feats, 21) {
         let newbase = get_apic_base() | get_apic_flags() | (1 << 10);
         unsafe {
-            asm!("wrmsr", 
-                in("ecx") IA32_APIC_BASE,
-                in("edx") (newbase >> 32) as u32,
-                in("eax") newbase as u32,
-                options(nomem, nostack, preserves_flags));
+            write_to_msr(newbase as u64, IA32_APIC_BASE as u32);
         }
         return true;
     }
