@@ -163,6 +163,8 @@ impl SchedulerState {
         let core_data = get_core_data();
         core_data.core_gdt.tss.rsp[0] = next_stack_top as u64;
 
+        core_data.kernel_rsp = next_stack_top;
+
         update_hardware_timer();
 
         if prev_thread == next_thread {

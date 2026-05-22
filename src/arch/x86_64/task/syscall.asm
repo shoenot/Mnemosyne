@@ -1,6 +1,7 @@
 extern syscall_dispatch
 global _syscall_entry 
 global copy_from_user
+global copy_to_user
 
 section .text
 
@@ -52,7 +53,7 @@ _syscall_entry:
 
     swapgs
 
-    sysretq
+    o64 sysret
 
 ; fn copy_from_user(dst, src, len)
 copy_from_user:
@@ -60,19 +61,19 @@ copy_from_user:
     add rax, rdx                
     mov r8, 0xFFFF800000000000  ; check if address + len encroaches kernel addr space 
     cmp rax, r8
-    jae .fail_boundary
+    jae .fail_boundary_from
 
     mov rcx, rdx                ; mov len into rcx for movsb
     
     stac                        ; disable smap 
-.copy_fail_point:
+.copy_from_fail_point:
     rep movsb 
     clac                        ; reenable smap
 
     mov rax, 1                  ; success (return true)
     ret 
 
-.fail_boundary: 
+.fail_boundary_from: 
     mov rax, 0 
     ret
 
@@ -81,7 +82,33 @@ copy_from_user:
     mov rax, 0
     ret
 
+; fn copy_to_user(dst: *mut u8, src: *const u8, len: usize) -> bool 
+copy_to_user:
+    mov rax, rdi
+    add rax, rdx
+    mov r8, 0xFFFF800000000000
+    cmp rax, r8
+    jae .fail_boundary_to
+
+    mov rcx, rdx 
+
+    stac
+.copy_to_fail_point:
+    rep movsb
+    clac
+
+    mov rax, 1
+    ret
+
+.fail_boundary_to:
+    mov rax, 0
+    ret 
+
 section .extable
     align 8 
-    dq .copy_fail_point         ; check fail here
-    dq .recover_target          ; if fail, jump here
+    ; entry 1: copy_from_user
+    dq copy_from_user.copy_from_fail_point         ; check fail here
+    dq copy_from_user.recover_target          ; if fail, jump here
+    ; entry 2: copy_from_user
+    dq copy_to_user.copy_to_fail_point         ; check fail here
+    dq copy_from_user.recover_target          ; if fail, jump here

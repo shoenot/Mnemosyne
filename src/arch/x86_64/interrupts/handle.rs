@@ -21,6 +21,9 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
     match handle_page_fault(cr2 as usize, frame.error_code as usize) {
         Ok(_) => {},
         Err(e) => {
+            if crate::arch::x86_64::interrupts::extable::fixup_exception(frame) {
+                return;
+            }
             klogln!("");
             klogln!("!------------- PAGE FAULT DIAGNOSTICS -------------!");
             klogln!("Faulting Address (CR2): {:#018X}", cr2);

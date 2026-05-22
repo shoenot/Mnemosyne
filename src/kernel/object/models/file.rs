@@ -1,6 +1,7 @@
 use core::cmp::min;
 use core::ptr::copy_nonoverlapping;
 
+use crate::arch::x86_64::task::syscall::{copy_to_user, give_user_string, safe_copy_to};
 use crate::kernel::object::handle::AccessRights;
 use crate::kernel::object::invoke::{Invocation, InvocationError};
 use crate::kernel::object::obj::KernelObject;
@@ -36,7 +37,7 @@ impl FileObj {
     }
 
     // unix behavior: returns 0 if there's nothing to read 
-    fn read_file(&self, offset: usize, bufer_ptr: *mut u8, req_len: usize) -> Result<usize, InvocationError> {
+    fn read_file(&self, offset: usize, buffer_ptr: *mut u8, req_len: usize) -> Result<usize, InvocationError> {
         if offset >= self.size {
             return Ok(0);
         }
@@ -48,7 +49,7 @@ impl FileObj {
 
         unsafe { 
             let ptr = self.addr.add(offset);
-            copy_nonoverlapping(ptr, bufer_ptr, read_len);
+            if !safe_copy_to(buffer_ptr, ptr, read_len) { return Err(InvocationError::InvalidArgument) };
         }
         Ok(read_len)
     }

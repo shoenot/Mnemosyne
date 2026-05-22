@@ -1,5 +1,6 @@
 use alloc::alloc::dealloc;
 use core::alloc::Layout;
+use core::ptr::drop_in_place;
 use core::sync::atomic::Ordering;
 
 use crate::arch::x86_64::cpu::fpu::{
@@ -26,11 +27,17 @@ pub extern "C" fn reaper_daemon(_arg: usize) -> ! {
 
 fn reap_thread(thread: *mut ThreadControlBlock) {
     unsafe {
+        // bootstrap thread (stack base is 0) so cannot be free by the standard heap
+        if (*thread).stack_base == 0 {
+            drop_in_place(thread);
+            return;
+        }
+
         // dealloc stack
-        let stack_ptr = (*thread).stack_ptr as *mut u8;
+        let stack_base = (*thread).stack_base as *mut u8;
         let stack_size = (*thread).stack_size;
         let stack_layout = Layout::from_size_align(stack_size, 16).expect("Error reaping thread");
-        dealloc(stack_ptr, stack_layout);
+        dealloc(stack_base, stack_layout);
 
         // dealloc extended context
         let xt_cxt_ptr = (*thread).extended_context;
@@ -39,6 +46,7 @@ fn reap_thread(thread: *mut ThreadControlBlock) {
         dealloc(xt_cxt_ptr, xt_layout);
 
         // dealloc tcb
+        drop_in_place(thread);
         let tcb_layout = Layout::new::<ThreadControlBlock>();
         dealloc(thread as *mut u8, tcb_layout);
     }

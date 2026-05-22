@@ -8,8 +8,8 @@ use alloc::{
 }; use core::borrow::Borrow;
 use core::str::Utf8Error;
 use crate::arch::get_core_data;
-use crate::kernel::object::handle::{AccessRights, HandleID};
-use crate::kernel::object::invoke::{
+use crate::arch::x86_64::task::syscall::{copy_from_user, safe_copy_from};
+use crate::kernel::object::handle::{AccessRights, HandleID}; use crate::kernel::object::invoke::{
     Invocation,
     InvocationError,
 };
@@ -19,6 +19,8 @@ use crate::kernel::object::vfs::kernel_invoke;
 use crate::kernel::sync::RwLock;
 use crate::kernel::thread::get_current_process;
 use crate::{klog, klogln};
+
+pub const FILENAME_LEN_MAX: usize = 255;
 
 #[derive(Debug)]
 pub struct Directory {
@@ -101,7 +103,14 @@ impl Directory {
     }
 
     fn lookup(&self, name: *const u8, name_len: usize, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+        if name_len > FILENAME_LEN_MAX { return Err(InvocationError::InvalidArgument) };
+        let mut filename = [0u8; 255];
+        let filename_ptr = filename.as_mut_ptr();
+
         let name_str = unsafe {
+            if !safe_copy_from(filename_ptr, name, name_len) {
+                return Err(InvocationError::InvalidArgument);
+            }
             let name_bytes = slice::from_raw_parts(name, name_len);
             str::from_utf8(name_bytes)?
         };
@@ -120,14 +129,14 @@ impl Directory {
         Ok(handle_id.0)
     }
 
-    fn list_contents(&self, mut offset: usize) -> Result<usize, InvocationError> {
+    fn list_contents(&self, offset: usize) -> Result<usize, InvocationError> {
         for (k, v) in &*(self.tree.read()) {
             for _ in 0..offset {
                 klog!(" ");
             }
             klogln!("{}", k.name.clone());
             if v.type_name() == "Directory" {
-                v.invoke(Invocation::Directory(DirectoryOp::List(offset + 4)), AccessRights::all());
+                v.invoke(Invocation::Directory(DirectoryOp::List(offset + 4)), AccessRights::all())?;
             }
         }
         Ok(0)

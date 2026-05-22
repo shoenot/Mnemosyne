@@ -1,8 +1,6 @@
 use crate::{arch::x86_64::task::syscall::SysError, kernel::object::invoke::Invocation};
 use core::arch::asm;
 
-
-
 pub fn sys_invoke(handle_id: usize, invocation: Invocation) -> Result<usize, SysError> {
     let inv_ptr = &invocation as *const Invocation as usize;
     let status: usize;
@@ -22,3 +20,4 @@ pub fn sys_invoke(handle_id: usize, invocation: Invocation) -> Result<usize, Sys
         _ => Err(SysError::from(status)),
     }
 }
+

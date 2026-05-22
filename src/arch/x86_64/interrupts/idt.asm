@@ -22,6 +22,12 @@ isr_stub_%1:
 section .text
 
 common_interrupt_handler:
+    ; check if we came from user mode by testing the rpl of the saved code selector
+    test qword [rsp + 24], 3
+    jz .no_swapgs_in
+    swapgs
+.no_swapgs_in:
+
     push r15
     push r14
     push r13
@@ -58,6 +64,11 @@ common_interrupt_handler:
     pop r13
     pop r14
     pop r15
+
+    test qword [rsp + 24], 3
+    jz .no_swapgs_out
+    swapgs
+.no_swapgs_out:
 
     add rsp, 16 ; Clean up interrupt_number and error_code
     iretq

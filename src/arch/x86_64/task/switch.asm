@@ -91,7 +91,11 @@ thread_entry_stub:
     pop r14
     pop r15
 
-    add rsp, 16 ; skip interrupt number and error code
+    test qword [rsp + 24], 3
+    jz .no_swap
+    swapgs
+.no_swap:
 
+    add rsp, 16 ; skip interrupt number and error code
     iretq
 
