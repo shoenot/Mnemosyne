@@ -190,12 +190,12 @@ impl KernelObject for Channel {
 pub fn link_chan(handle: HandleID) {
     let obj_root = kernel_invoke(
         HandleID(0),
-        Invocation::Directory(DirectoryOp::Lookup { name: "obj".as_ptr(), name_len: "obj".len() })
+        Invocation::Directory(DirectoryOp::Lookup { name: "Objects".as_ptr(), name_len: "Objects".len() })
     ).expect("Obj dir not mounted.");
 
     let chan_root = kernel_invoke(
         HandleID(obj_root),
-        Invocation::Directory(DirectoryOp::Lookup { name: "chan".as_ptr(), name_len: "chan".len() })
+        Invocation::Directory(DirectoryOp::Lookup { name: "Channels".as_ptr(), name_len: "Channels".len() })
     ).expect("Chan root not mounted.");
 
     mount_kernel_dir(

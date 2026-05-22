@@ -23,19 +23,16 @@ impl KernelObject for TestDevice {
 pub fn init_vfs() {
     let dev_dir = Arc::new(Directory::new());
     let obj_dir = Arc::new(Directory::new());
-    let docs_dir = Arc::new(Directory::new());
     let chan_dir = Arc::new(Directory::new());
 
     let dev_handle = kernel_register_obj(dev_dir, AccessRights::READ | AccessRights::WRITE);
     let obj_handle = kernel_register_obj(obj_dir, AccessRights::READ | AccessRights::WRITE);
-    let docs_handle = kernel_register_obj(docs_dir, AccessRights::READ | AccessRights::WRITE);
     let chan_handle = kernel_register_obj(chan_dir, AccessRights::READ | AccessRights::WRITE);
 
     // mount all dirs 
-    mount_kernel_dir("dev", dev_handle, HandleID(0));
-    mount_kernel_dir("obj", obj_handle, HandleID(0));
-    mount_kernel_dir("docs", docs_handle, HandleID(0));
-    mount_kernel_dir("chan", chan_handle, obj_handle);
+    mount_kernel_dir("Devices", dev_handle, HandleID(0));
+    mount_kernel_dir("Objects", obj_handle, HandleID(0));
+    mount_kernel_dir("Channels", chan_handle, obj_handle);
 
     let ptr = get_ramdisk_ptr();
     let size = get_ramdisk_size();

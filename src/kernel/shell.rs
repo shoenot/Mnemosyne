@@ -4,7 +4,7 @@ use crate::{kernel::object::{handle::HandleID, invoke::Invocation, op::ChannelOp
 
 pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
     let chan_handle = HandleID(chan_handle_id);
-    let mut command_bytes = [0u8; 64];
+    let mut command_bytes = [0u8; 128];
 
     loop {
         let pull_op = Invocation::Channel(ChannelOp::Pull { 

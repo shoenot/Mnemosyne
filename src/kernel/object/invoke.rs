@@ -60,6 +60,7 @@ impl Invocation {
             Invocation::Directory(DirectoryOp::Link { .. }) => AccessRights::WRITE,
             Invocation::Directory(DirectoryOp::Unlink { .. }) => AccessRights::WRITE,
             Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,
+            Invocation::Directory(DirectoryOp::List(..)) => AccessRights::READ,
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,

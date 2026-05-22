@@ -18,6 +18,7 @@ use crate::kernel::object::obj::{HandleEntry, KernelObject};
 use crate::kernel::object::vfs::kernel_invoke;
 use crate::kernel::sync::RwLock;
 use crate::kernel::thread::get_current_process;
+use crate::{klog, klogln};
 
 #[derive(Debug)]
 pub struct Directory {
@@ -64,8 +65,13 @@ impl KernelObject for Directory {
             Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => self.link(name, name_len, handle_id),
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => self.unlink(name, name_len),
             Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name, name_len, calling_rights),
+            Invocation::Directory(DirectoryOp::List(offset)) => self.list_contents(offset),
             _ => Err(InvocationError::UnsupportedOperation),
         }
+    }
+
+    fn type_name(&self) -> &'static str {
+        "Directory"
     }
 }
 
@@ -112,5 +118,18 @@ impl Directory {
             .write()
             .insert(obj_arc, rights);
         Ok(handle_id.0)
+    }
+
+    fn list_contents(&self, mut offset: usize) -> Result<usize, InvocationError> {
+        for (k, v) in &*(self.tree.read()) {
+            for _ in 0..offset {
+                klog!(" ");
+            }
+            klogln!("{}", k.name.clone());
+            if v.type_name() == "Directory" {
+                v.invoke(Invocation::Directory(DirectoryOp::List(offset + 4)), AccessRights::all());
+            }
+        }
+        Ok(0)
     }
 }

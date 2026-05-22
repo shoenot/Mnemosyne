@@ -11,7 +11,7 @@ use crate::drivers::keyboard::kbd_processor_thread;
 use crate::kernel::object::handle::HandleID;
 use crate::kernel::object::invoke::{Invocation, InvocationError};
 use crate::kernel::object::models::channel::init_ipc_pipeline;
-use crate::kernel::object::op::FileOp;
+use crate::kernel::object::op::{DirectoryOp, FileOp};
 use crate::kernel::object::vfs::{kernel_invoke, kernel_walk};
 use crate::kernel::process::pcb::ProcessControlBlock;
 use crate::kernel::shell::kernel_shell_thread;
@@ -48,13 +48,15 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_handle.0, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
     spawn_kernel_thread(kernel_shell_thread as *const () as usize, shell_handle.0, ThreadPriority::MEDIUM, KERNEL_PROCESS.clone());
 
-    let file_handle = kernel_walk("/docs/filetest.txt", HandleID(0)).expect("File not found!");
+    let file_handle = kernel_walk("/Documents/filetest.txt", HandleID(0)).expect("File not found!");
     let mut buf = [0u8; 64];
 
     let read_op = FileOp::Read { offset: 0, buffer_ptr: buf.as_mut_ptr(), len: buf.len() };
     let bytes_read = kernel_invoke(file_handle, Invocation::File(read_op)).expect("Failed to read");
 
     klogln!("Ramdisk read success: {}", core::str::from_utf8(&buf[..bytes_read]).unwrap());
+
+    kernel_invoke(HandleID(0), Invocation::Directory(DirectoryOp::List(0)));
 
     terminate_thread!();
 }

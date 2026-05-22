@@ -24,7 +24,7 @@ pub fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) -> Option<u32> {
 }
 
 pub fn putchar(c: char, x: u32, y: u32, font: &Psf, fb: &Framebuffer) {
-    let x = x * 8;
+    let x = (x * 8) + 8;
     let y = y * 16;
     let Some(pixels) = font.get_glyph_pixels(c as usize) else { return };
     pixels.enumerate().for_each(|(i, p)| {
@@ -38,7 +38,7 @@ pub fn putchar(c: char, x: u32, y: u32, font: &Psf, fb: &Framebuffer) {
 }
 
 pub fn erasechar(x: u32, y: u32, fb: &Framebuffer) {
-    let x = x * 8;
+    let x = (x * 8) + 8;
     let y = y * 16;
     for xpix in x..(x+8) {
         for ypix in y..(y+16) {
@@ -74,7 +74,7 @@ pub struct SyncFramebuffer(pub &'static Framebuffer);
 unsafe impl Send for SyncFramebuffer {}
 unsafe impl Sync for SyncFramebuffer {}
 
-const MAX_COLS: usize = 64;
+const MAX_COLS: usize = 128;
 
 pub enum RenderLine {
     Append(char),
@@ -274,7 +274,7 @@ impl GraphicsWriter {
 
     fn draw_cursor(&mut self, offset: u32) {
         let y = self.current_line * 16;
-        let x = offset * 8;
+        let x = (offset * 8) + 8;
         for ypix in y..(y + 16) {
             putpixel(x, ypix, 0xFFFFFF, self.fb.0);
         }
@@ -282,7 +282,7 @@ impl GraphicsWriter {
 
     pub fn erase_cursor(&mut self, offset: u32) {
         let y = self.current_line * 16;
-        let x = offset * 8;
+        let x = (offset * 8) + 8;
         for ypix in y..(y + 16) {
             putpixel(x, ypix, 0x000000, self.fb.0);
         }
