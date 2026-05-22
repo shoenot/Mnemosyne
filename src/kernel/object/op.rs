@@ -21,6 +21,7 @@ pub enum DirectoryOp {
 #[derive(Debug)]
 pub enum FileOp {
     Read { offset: usize, buffer_ptr: *mut u8, len: usize },
+    Stat,
 }
 
 #[repr(C)]
@@ -29,4 +30,11 @@ pub enum VmoOp {
     GetPage { offset: usize },
     Resize { new_size: usize },
     Clone { offset: usize, len: usize },
+}
+
+#[repr(C)]
+#[derive(Debug)]
+pub enum ProcOp {
+    Kill,
+    GetStatus { status_ptr: *mut crate::kernel::process::pcb::ProcStatus },
 }

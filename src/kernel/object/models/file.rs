@@ -20,6 +20,7 @@ impl KernelObject for FileObj {
     fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => { self.read_file(offset, buffer_ptr, len) },
+            Invocation::File(FileOp::Stat) => self.stat(),
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -50,5 +51,9 @@ impl FileObj {
             copy_nonoverlapping(ptr, bufer_ptr, read_len);
         }
         Ok(read_len)
+    }
+
+    fn stat(&self) -> Result<usize, InvocationError> {
+        Ok(self.size)
     }
 }

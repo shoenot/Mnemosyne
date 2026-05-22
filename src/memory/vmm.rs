@@ -1,11 +1,12 @@
 #![allow(dead_code)]
 
+use core::alloc::GlobalAlloc;
 use core::ptr;
 
 use alloc::alloc::{
-    Layout,
     alloc,
     dealloc,
+    Layout,
 };
 use alloc::sync::Arc;
 
@@ -14,12 +15,10 @@ use alloc::sync::Arc;
 use super::paging::*;
 use super::pmm::*;
 use crate::arch::x86_64::interrupts::shootdown::shootdown;
-use crate::kernel::object::invoke::{Invocation, InvocationError};
-use crate::kernel::object::obj::KernelObject;
-use crate::kernel::object::op::VmoOp;
+use crate::kernel::object::invoke::InvocationError;
 use crate::kernel::sync::TicketLock;
-use crate::memory::PCAllocator;
 use crate::memory::vmo::PagedBackingStore;
+use crate::memory::{GLOBAL_PMM, PCAllocator};
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;
@@ -100,7 +99,7 @@ pub struct VirtMemManager {
 unsafe impl Send for VirtMemManager {}
 unsafe impl Sync for VirtMemManager {}
 
-fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
+pub fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 
 impl VirtMemManager {
     pub fn new(allocator: &'static PCAllocator) -> Self { 
@@ -200,6 +199,58 @@ impl VirtMemManager {
     pub fn mmap_vmo(&mut self, size: usize, flags: usize, backing_vmo: Arc<dyn PagedBackingStore>) -> Option<usize> {
         let node_ptr = allocate_node();
         self.mmap_internal(size, flags, Some(backing_vmo), 0, node_ptr)
+    }
+
+    pub fn mmap_vmo_at(&mut self, start_addr: usize, mut size: usize, flags: usize, backing_vmo: Arc<dyn PagedBackingStore>) -> Option<usize> {
+        let mask = NORMAL_PAGE_SIZE - 1;
+        size = (size + mask) & !mask;
+
+        let mut prev_ptr = None;
+        let mut current_ptr = self.head;
+
+        unsafe {
+            // find spot where start_addr fits
+            while let Some(curr) = current_ptr {
+                if (*curr).start > start_addr {
+                    break;
+                }
+                prev_ptr = Some(curr);
+                current_ptr = (*curr).next;
+            }
+
+            // check for overlaps with prv mapping
+            if let Some(prev) = prev_ptr {
+                    if (*prev).start + (*prev).size > start_addr { return None };
+            }
+
+            // check for overlaps with next mapping
+            if let Some(next) = current_ptr {
+                if start_addr + size > (*next).start { return None };
+            }
+
+            let node_ptr = allocate_node();
+            ptr::write(node_ptr, VmaNode {
+                start: start_addr,
+                size,
+                flags,
+                prev: prev_ptr,
+                next: current_ptr,
+                backing_vmo: Some(backing_vmo),
+                vmo_offset: 0,
+            });
+
+            if let Some(prev) = prev_ptr {
+                (*prev).next = Some(node_ptr);
+            } else {
+                self.head = Some(node_ptr);
+            }
+
+            if let Some(next) = current_ptr {
+                (*next).prev = Some(node_ptr);
+            }
+
+            Some(start_addr)
+        }
     }
 
     pub fn munmap(&mut self, start_addr: usize, mut size: usize) -> Result<(), &'static str> {
@@ -385,5 +436,58 @@ impl VirtMemManager {
 
         flush_tlb(addr as u64);
         Ok(())
+    }
+
+    pub fn teardown(&mut self) {
+        unsafe { 
+            while let Some(node_ptr) = self.head {
+                let start = (*node_ptr).start;
+                let size = (*node_ptr).size;
+                let _ = self.munmap(start, size);
+            }
+
+            let pagerlock = self.pager.lock();
+            let pml4_phys = pagerlock.get_l4_addr();
+
+            let pml4 = &mut *((pml4_phys + *HHDMOFFSET as u64) as *mut PageTable);
+            for idx in 0..256 {
+                let entry = &mut pml4.entries[idx];
+                if entry.is_present() {
+                    let l3_phys = entry.get_addr();
+
+                    let l3 = &mut *((l3_phys + *HHDMOFFSET as u64) as *mut PageTable);
+                    for l3_idx in 0..512 {
+                        let l3_entry = &mut l3.entries[l3_idx];
+                        if l3_entry.is_present() {
+                            let l2_phys = entry.get_addr();
+
+                            let l2 = &mut *((l2_phys + *HHDMOFFSET as u64) as *mut PageTable);
+                            for l2_idx in 0..512 {
+                                let l2_entry = &mut l2.entries[l2_idx];
+                                if l2_entry.is_present() && l2_entry.is_huge() {
+                                    let l1_phys = l2_entry.get_addr();
+                                    GLOBAL_PMM.lock().free(l1_phys as usize, BlockSize::Normal);
+                                }
+                            }
+                            GLOBAL_PMM.lock().free(l2_phys as usize, BlockSize::Normal);
+                        }
+                    }
+                    GLOBAL_PMM.lock().free(l3_phys as usize, BlockSize::Normal);
+                }
+            }
+            GLOBAL_PMM.lock().free(pml4_phys as usize, BlockSize::Normal);
+        }
+    }
+
+    pub fn get_total_allocated_size(&self) -> usize {
+        let mut total = 0;
+        let mut current_ptr = self.head;
+        unsafe { 
+            while let Some(curr) = current_ptr {
+                total += (*curr).size;
+                current_ptr = (*curr).next;
+            }
+        }
+        total
     }
 }

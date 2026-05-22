@@ -14,6 +14,7 @@ use pmm::*;
 pub use pmm::{
     BlockSize,
     HUGE_PAGE_SIZE,
+    NORMAL_PAGE_SIZE,
 };
 use vmm::*;
 

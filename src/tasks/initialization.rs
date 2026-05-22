@@ -8,11 +8,11 @@ use crate::arch::{
     get_core_data,
 };
 use crate::drivers::keyboard::kbd_processor_thread;
-use crate::kernel::object::handle::HandleID;
+use crate::kernel::object::handle::{AccessRights, HandleID};
 use crate::kernel::object::invoke::{Invocation, InvocationError};
 use crate::kernel::object::models::channel::init_ipc_pipeline;
 use crate::kernel::object::op::{DirectoryOp, FileOp};
-use crate::kernel::object::vfs::{kernel_invoke, kernel_walk};
+use crate::kernel::object::vfs::{kernel_close, kernel_invoke, kernel_walk, proc_cpy_handle};
 use crate::kernel::process::pcb::ProcessControlBlock;
 use crate::kernel::shell::kernel_shell_thread;
 use crate::kernel::thread::dispatch::{spawn_kernel_thread, spawn_user_thread};
@@ -21,10 +21,9 @@ use crate::kernel::thread::reap::reaper_daemon;
 use crate::kernel::time;
 use crate::kernel::time::datetime::epoch_to_datetime;
 use crate::kernel::time::sleep;
-use crate::memory::HHDMOFFSET;
 use crate::memory::vmm::{VM_FLAG_EXEC, VM_FLAG_USER, VM_FLAG_WRITE};
-use crate::memory::vmo::{PagedBackingStore, Vmo};
 use crate::tasks::vfs_init::init_vfs;
+use crate::kernel::program::load_elf;
 use crate::tests::smp_tests::{
     MUTEX_RACE,
     THREADS_FINISHED,
@@ -56,8 +55,15 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     klogln!("Ramdisk read success: {}", core::str::from_utf8(&buf[..bytes_read]).unwrap());
 
-    kernel_invoke(HandleID(0), Invocation::Directory(DirectoryOp::List(0)));
+    kernel_invoke(HandleID(0), Invocation::Directory(DirectoryOp::List(0))).expect("Cannot print root directory tree");
 
+    let path: &str = "/Programs/loop";
+    spawn_kernel_thread(
+        launch_user_prog as *const () as usize,
+        &path as *const &str as usize,
+        ThreadPriority::HIGH,
+        KERNEL_PROCESS.clone()
+    );
     terminate_thread!();
 }
 
@@ -94,27 +100,31 @@ pub extern "C" fn test_userspace(_arg: usize) -> ! {
         spin_loop();
     }
 }
-    // let user_proc = ProcessControlBlock::new();
-    //
-    // let code_vmo = Vmo::new(4096);
-    // let phys_page = code_vmo.request_page(0).unwrap();
-    // let virt_page = phys_page + *HHDMOFFSET;
-    // let test_code = [0xEB, 0xFE];
-    // unsafe {
-    //     core::ptr::copy_nonoverlapping(test_code.as_ptr(), virt_page as *mut u8, test_code.len());
-    // }
-    //
-    // let code_addr = match user_proc.vmm.write()
-    //     .mmap_vmo(4096, VM_FLAG_USER | VM_FLAG_EXEC, code_vmo as Arc<dyn PagedBackingStore>) {
-    //     Some(addr) => addr,
-    //     None => panic!("user code alloc failed"),
-    // };
-    //
-    // let stack_size = 8192;
-    // let stack_addr = match user_proc.vmm.write().mmap(stack_size, VM_FLAG_USER | VM_FLAG_WRITE) {
-    //     Some(addr) => addr,
-    //     None => panic!("user code alloc failed"),
-    // };
-    // let user_stack_top = stack_addr + stack_size;
-    //
-    // spawn_user_thread(code_addr, user_stack_top, 0, ThreadPriority::MEDIUM, user_proc);
+
+pub extern "C" fn launch_user_prog(arg: usize) -> ! {
+    let path: &str = unsafe { *(arg as *const &str) };
+    let file_handle = kernel_walk(path, HandleID(0)).expect("Init program binary not found!");
+    let user_proc = ProcessControlBlock::new();
+
+    let root_rights = AccessRights(AccessRights::all().0 & !AccessRights::EXECUTE.0);
+    proc_cpy_handle(
+        KERNEL_PROCESS.get().expect("No kernel process"),
+        HandleID(0),
+        &user_proc,
+        root_rights,
+        Some(HandleID(0))
+    ).expect("Failed to copy root handle to Init");
+
+    let entry_point = load_elf(file_handle, &user_proc).expect("Failed to load ELF");
+
+    let stack_size = 8192;
+    let stack_addr = user_proc.vmm.write()
+        .mmap(stack_size, VM_FLAG_USER | VM_FLAG_WRITE)
+        .expect("Failed to allocate user stack");
+    let user_stack_top = stack_addr + stack_size;
+
+    spawn_user_thread(entry_point, user_stack_top, 0, ThreadPriority::MEDIUM, user_proc);
+
+    let _ = kernel_close(file_handle);
+    terminate_thread!();
+}

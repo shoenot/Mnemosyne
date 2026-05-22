@@ -16,6 +16,7 @@ use crate::kernel::object::obj::{
 use crate::kernel::object::op::DirectoryOp;
 use crate::kernel::sync::{KernelOnceCell, RwLock};
 use crate::kernel::thread::get_current_process;
+use crate::kernel::process::pcb::Process;
 use crate::{
     klog, klogln
 };
@@ -88,6 +89,25 @@ pub fn kernel_walk(path: &str, handle: HandleID) -> Result<HandleID, InvocationE
         last = next;
     }
     Ok(last)
+}
+
+pub fn proc_register_obj(proc: &Process, obj: Arc<dyn KernelObject>, rights: AccessRights) -> HandleID {
+    proc.proc_handles.write().insert(obj, rights)
+}
+
+pub fn proc_cpy_handle(src_proc: &Process, src_handle: HandleID,
+    dst_proc: &Process, dst_rights: AccessRights,
+    dst_handle: Option<HandleID>) -> Result<HandleID, InvocationError> {
+    if let Some(entry) = src_proc.proc_handles.read().get(&src_handle) {
+        if let Some(id) = dst_handle {
+            dst_proc.proc_handles.write().insert_at(id, entry.object.clone(), dst_rights);
+            Ok(id)
+        } else {
+            Ok(dst_proc.proc_handles.write().insert(entry.object.clone(), dst_rights))
+        }
+    } else {
+        Err(InvocationError::PathNotFound)
+    }
 }
 
 

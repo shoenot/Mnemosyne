@@ -1,5 +1,3 @@
-use alloc::format;
-use alloc::string::String;
 use core::fmt;
 use core::str::Utf8Error;
 
@@ -7,8 +5,9 @@ use crate::kernel::object::handle::AccessRights;
 use crate::kernel::object::op::{
     ChannelOp,
     DirectoryOp,
-    FileOp, 
-    VmoOp
+    FileOp,
+    ProcOp,
+    VmoOp,
 };
 
 #[derive(Debug)]
@@ -47,6 +46,7 @@ pub enum Invocation {
     Directory(DirectoryOp),
     File(FileOp),
     Vmo(VmoOp),
+    Proc(ProcOp),
 }
 
 impl Invocation {
@@ -62,9 +62,12 @@ impl Invocation {
             Invocation::Directory(DirectoryOp::Lookup { .. }) => AccessRights::READ,
             Invocation::Directory(DirectoryOp::List(..)) => AccessRights::READ,
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
+            Invocation::File(FileOp::Stat) => AccessRights::READ,
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
+            Invocation::Proc(ProcOp::Kill) => AccessRights::WRITE,
+            Invocation::Proc(ProcOp::GetStatus { .. }) => AccessRights::READ,
         }
     }
 }
