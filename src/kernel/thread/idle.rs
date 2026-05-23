@@ -24,7 +24,7 @@ fn idle_loop() -> ! {
 }
 
 pub fn init_idle_thread(core_logical_id: usize) -> *mut ThreadControlBlock {
-    let stack_size = 4096;
+    let stack_size = 4096 * 16;
 
     let tcb_ptr = BOOTSTRAP_ALLOC.lock().alloc(size_of::<ThreadControlBlock>(), 8) as *mut ThreadControlBlock;
     let stack_base = BOOTSTRAP_ALLOC.lock().alloc(stack_size, 8) as usize;

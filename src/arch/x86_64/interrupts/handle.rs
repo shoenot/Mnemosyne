@@ -59,23 +59,18 @@ pub(in crate::arch::x86_64::interrupts) fn unexpected_interrupt_handler(frame: &
 
 pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     let core_data = get_core_data();
-    klogln!("core id is {}", core_data.logical_id);
     core_data.apic_mode.eoi();
 
     if core_data.scheduler.idle_thread.is_null() {
-        klogln!("idle thread is null");
         core_data.apic_mode.arm_oneshot(100_000);
         return;
-    } else {
-        klogln!("idle thread is NOT null");
-    }
-
+    } 
     unsafe {
         let td_tcb_ptr = (*core_data).timer_daemon_tcb;
         if !td_tcb_ptr.is_null() {
             // In the new centralized timer model, we always wake the daemon
             // to check if it was a callout or a quantum expiry.
-            if (*td_tcb_ptr).state != ThreadState::Running {
+            if (*td_tcb_ptr).state == ThreadState::Blocked {
                 (*td_tcb_ptr).state = ThreadState::Ready;
                 core_data.scheduler.push(td_tcb_ptr);
             }

@@ -87,7 +87,7 @@ pub fn arm_sleep_ticks(ticks: usize) {
         let global_fq = *TIME_SRC_FQ;
         let lapic_fq = *LAPIC_FQ;
 
-        let lapic_ticks = (ticks as u128 * lapic_fq as u128) / global_fq as u128;
+        let lapic_ticks = ((ticks as u128 * lapic_fq as u128) / global_fq as u128).max(1);
         let core_data = get_core_data();
         core_data.apic_mode.arm_oneshot(lapic_ticks as u32);
     }
@@ -106,35 +106,45 @@ pub fn update_hardware_timer() {
     let core_data = get_core_data();
     let current_time = get_time();
 
-    // next preemption time (infinity if its idle, quantum expiry if its not).
     let mut next_event = unsafe {
-        if !core_data.scheduler.current_thread.is_null() && (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
+        if !core_data.scheduler.current_thread.is_null() && 
+            (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
             (*core_data.scheduler.current_thread).quantum_expiry
         } else {
             usize::MAX
         }
     };
 
-    // check callout queue time and if its earlier than the preemption time then set it to that.
-    let queue = core_data.callout_queue.lock();
-    if let Some(earliest) = queue.peek() {
-        if earliest.wake_time < next_event {
-            next_event = earliest.wake_time;
+    let mut arm_hardware = true;
+
+    {
+        let queue = core_data.callout_queue.lock();
+        if let Some(earliest) = queue.peek() {
+            if earliest.wake_time < next_event {
+                next_event = earliest.wake_time;
+            }
+
+            if earliest.wake_time <= current_time {
+                arm_hardware = false;
+            }
         }
     }
-    drop(queue);
 
-    if next_event != usize::MAX {
-        // arm for at least 1 tick because otherwise it hangs
+    if !arm_hardware {
+        unsafe {
+            let td_tcb_ptr = (*core_data).timer_daemon_tcb;
+            if !td_tcb_ptr.is_null() && (*td_tcb_ptr).state == ThreadState::Blocked {
+                (*td_tcb_ptr).state = ThreadState::Ready;
+                core_data.scheduler.push(td_tcb_ptr);
+            }
+        }
+    }
+
+    if arm_hardware && next_event != usize::MAX {
         let diff = next_event.saturating_sub(current_time).max(1);
-
-        // clamp to 32 bits
         let ticks = if diff > u32::MAX as usize { u32::MAX as usize } else { diff };
-
-        klogln!("arm sleep ticks. next event: {}", next_event);
         arm_sleep_ticks(ticks);
-    } else {
-        klogln!("stop timer. next event: {}", next_event);
+    } else if arm_hardware {
         core_data.apic_mode.stop_timer();
     }
 }
@@ -159,8 +169,6 @@ pub fn sleep(ns: usize) {
         let mut queue = get_core_data().callout_queue.lock();
         queue.push(callout);
     }
-
-    klogln!("pushed to callout in sleep function");
 
     sched.schedule();
 

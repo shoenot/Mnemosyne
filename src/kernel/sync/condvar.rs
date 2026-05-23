@@ -23,6 +23,7 @@ impl CondVar {
 
     pub fn wait<'a, T>(&self, guard: MutexGuard<'a, T>) -> MutexGuard<'a, T> {
         unsafe {
+            let int_state = interrupts_enabled();
             disable_interrupts();
             let mut queue = self.wait_queue.lock();
             let current_thread = get_core_data().scheduler.get_current_thread();
@@ -36,6 +37,8 @@ impl CondVar {
             drop(queue);
 
             get_core_data().scheduler.schedule();
+
+            if int_state { enable_interrupts() };
 
             mutex.lock()
         }
