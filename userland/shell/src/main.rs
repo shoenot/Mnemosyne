@@ -5,10 +5,10 @@ extern crate alloc;
 
 use alloc::string::String;
 use alloc::string::ToString;
-use mnemosyne_abi::FileOp;
-use mnemosyne_abi::HandleID;
-use mnemosyne_abi::Invocation;
-use mnemosyne_rt::syscall::sys_invoke;
+use vespertine_abi::FileOp;
+use vespertine_abi::HandleID;
+use vespertine_abi::Invocation;
+use vespertine_rt::syscall::sys_invoke;
 
 fn console_write(mut text: String) -> Invocation {
     let text_ptr = text.as_mut_ptr();

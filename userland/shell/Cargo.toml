@@ -9,5 +9,5 @@ test = false
 bench = false
 
 [dependencies]
-mnemosyne-rt = { path = "../../lib/mnemosyne-rt" }
-mnemosyne-abi = { path = "../../lib/mnemosyne-abi" }
+vespertine-rt = { path = "../../lib/vespertine-rt" }
+vespertine-abi = { path = "../../lib/vespertine-abi" }

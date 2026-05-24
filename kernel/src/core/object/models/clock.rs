@@ -1,6 +1,6 @@
 use crate::core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject}, time::get_realtime};
 
-use mnemosyne_abi::op::ClockOp;
+use vespertine_abi::op::ClockOp;
 
 #[derive(Debug)]
 pub struct Clock {}

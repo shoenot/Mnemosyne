@@ -10,7 +10,7 @@ use crate::arch::{
     interrupts_enabled,
 };
 
-use mnemosyne_common::lock::{RawLock, RawSpinLock, RawTicketLock};
+use vespertine_common::lock::{RawLock, RawSpinLock, RawTicketLock};
 
 // Kernel version of the generic lock
 

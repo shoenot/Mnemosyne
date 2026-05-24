@@ -1,6 +1,6 @@
 
-use mnemosyne_abi::{HandleID, Invocation, MemManOp, MemPoolOp, VmoOp, ProcOp};
-use mnemosyne_common::slab::PageProvider;
+use vespertine_abi::{HandleID, Invocation, MemManOp, MemPoolOp, VmoOp, ProcOp};
+use vespertine_common::slab::PageProvider;
 use crate::syscall::{SysError, sys_close, sys_invoke, sys_lookup};
 
 pub fn get_memory_manager() -> Result<HandleID, SysError> {

@@ -8,9 +8,9 @@ use crate::core::object::invoke::{Invocation, InvocationError};
 use crate::core::object::obj::KernelObject;
 use crate::core::object::vfs::{kernel_invoke, kernel_register_obj};
 use crate::core::sync::Semaphore;
-use mnemosyne_abi::op::ChannelOp;
-use mnemosyne_abi::op::DirectoryOp;
-use mnemosyne_abi::{AccessRights, HandleID};
+use vespertine_abi::op::ChannelOp;
+use vespertine_abi::op::DirectoryOp;
+use vespertine_abi::{AccessRights, HandleID};
 
 const CAPACITY: usize = 4;
 const MASK: usize = CAPACITY - 1;

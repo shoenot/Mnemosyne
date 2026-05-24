@@ -14,5 +14,5 @@ bench = false
 [dependencies]
 limine = "0.6.3"
 simple-psf = "0.1.2"
-mnemosyne-abi = { path = "../lib/mnemosyne-abi/" }
-mnemosyne-common = { path = "../lib/mnemosyne-common/" }
+vespertine-abi = { path = "../lib/vespertine-abi/" }
+vespertine-common = { path = "../lib/vespertine-common/" }

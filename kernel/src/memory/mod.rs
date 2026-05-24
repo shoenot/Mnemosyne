@@ -9,7 +9,7 @@ pub mod vmo;
 
 pub use bootalloc::*;
 use heap::*;
-use mnemosyne_common::slab::SlabAllocator;
+use vespertine_common::slab::SlabAllocator;
 use paging::*;
 use pmm::*;
 pub use pmm::{
@@ -31,7 +31,6 @@ use crate::core::sync::{
 };
 use crate::core::thread::get_current_process;
 use crate::{
-    klog,
     klogln,
     HHDM_REQUEST,
 };
@@ -59,7 +58,7 @@ pub struct PCAllocator {}
 impl PCAllocator {
     pub fn alloc(&self, size: BlockSize) -> usize {
         match size {
-            BlockSize::Huge => GLOBAL_PMM.lock().alloc(size).expect("Global PMM Exhausted"),
+            BlockSize::Huge => GLOBAL_PMM.lock().alloc(size).expect("[FATAL] Global PMM Exhausted"),
             BlockSize::Normal => {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
@@ -98,27 +97,18 @@ impl PCAllocator {
 }
 
 pub fn init() {
-    klog!("INITIATING PMM... ");
-    HHDMOFFSET.get_or_init(|| HHDM_REQUEST.response().expect("Failed to get HHDM offset from Limine").offset as usize);
+    klogln!("[INFO] Initiating memory management system...");
+    HHDMOFFSET.get_or_init(|| HHDM_REQUEST.response().expect("[FATAL] Failed to get HHDM offset from Limine").offset as usize);
     // Inititate PMM
     {
         let mut global_pmm = GLOBAL_PMM.lock();
         global_pmm.init();
     }
-    klogln!("OK");
+    klogln!("[SUCCESS] Physical memory manager operational.");
     // Inititate Pager
     {
         let mut pager = PAGER.lock();
         pager.init();
     }
-
-    klogln!("SWITCHED CR3. PAGING HANDOVER COMPLETE.");
-
-    // klog!("RUNNING MEMORY TESTS... ");
-    //
-    // memory_tests::test_kmalloc(false);
-    // memory_tests::test_vmalloc(false);
-    // memory_tests::test_collections(false);
-    //
-    // klogln!("TESTS COMPLETE!");
+    klogln!("[SUCCESS] Switched CR3. Paging handover complete.");
 }

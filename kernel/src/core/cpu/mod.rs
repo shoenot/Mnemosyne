@@ -60,7 +60,7 @@ pub fn register_core_data(logical_id: usize, data_ptr: *mut CPULocalData) {
 }
 
 pub fn init_smp() {
-    let mp_resp = MP_REQUEST.response().expect("No SMP Response from limine");
+    let mp_resp = MP_REQUEST.response().expect("[FATAL] No SMP Response from limine");
     let bsp_id = mp_resp.bsp_lapic_id;
     register_core_data(0, get_core_data());
 
@@ -85,7 +85,7 @@ pub fn init_smp() {
         logical_id += 1;
     }
 
-    klogln!("Started all cores");
+    klogln!("[SUCCESS] All CPUs started and operational.");
 
     NUM_CORES.get_or_init(|| logical_id);
 }

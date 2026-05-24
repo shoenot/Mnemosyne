@@ -13,8 +13,8 @@ use crate::core::thread::get_current_process;
 use crate::{
     klog, klogln
 };
-use mnemosyne_abi::op::DirectoryOp;
-use mnemosyne_abi::{AccessRights, HandleID};
+use vespertine_abi::op::DirectoryOp;
+use vespertine_abi::{AccessRights, HandleID};
 
 pub static ROOT_DIRECTORY: KernelOnceCell<Arc<Directory>> = KernelOnceCell::new();
 
@@ -61,14 +61,14 @@ pub fn debug_dump_handles() {
 }
 
 pub fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
-    klog!("Linking {}... ", name);
+    // klog!("Linking {}... ", name);
     // mount '/dev' inside '/'
     kernel_invoke(
         root,
         Invocation::Directory(DirectoryOp::Link { name: name.as_ptr(), name_len: name.len(), handle_id: handle }),
     )
     .expect("Link failed.");
-    klogln!("Link success!");
+    // klogln!("Link success!");
 }
 
 pub fn kernel_walk(path: &str, handle: HandleID) -> Result<HandleID, InvocationError> {

@@ -2,8 +2,8 @@ use alloc::sync::Arc;
 
 use crate::{core::{object::{invoke::{Invocation, InvocationError}, obj::KernelObject}, thread::get_current_process}, memory::vmo::PagedBackingStore};
 
-use mnemosyne_abi::op::VmoOp;
-use mnemosyne_abi::AccessRights;
+use vespertine_abi::op::VmoOp;
+use vespertine_abi::AccessRights;
 
 #[derive(Debug)]
 pub struct VmoObject {

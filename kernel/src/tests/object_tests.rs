@@ -3,7 +3,7 @@ use crate::core::object::vfs::{kernel_invoke, kernel_walk};
 use crate::core::object::invoke::Invocation;
 use crate::core::object::models::channel::init_ipc_pipeline;
 use crate::klogln;
-use mnemosyne_abi::op::{MemManOp, MemPoolOp, ChannelOp};
+use vespertine_abi::op::{MemManOp, MemPoolOp, ChannelOp};
 
 pub fn run_pool_tests() {
     let mm_handle = kernel_walk("/Objects/MemoryManager", HandleID(0)).expect("No Memory Manager found");

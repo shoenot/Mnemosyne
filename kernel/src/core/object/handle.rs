@@ -2,7 +2,7 @@ use alloc::{collections::btree_map::BTreeMap, sync::Arc};
 
 use crate::core::object::{invoke::InvocationError, obj::{HandleEntry, KernelObject}};
 
-pub use mnemosyne_abi::{AccessRights, HandleID};
+pub use vespertine_abi::{AccessRights, HandleID};
 
 #[derive(Debug)]
 pub struct HandleTable {

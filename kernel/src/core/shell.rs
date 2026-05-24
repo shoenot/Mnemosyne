@@ -1,12 +1,11 @@
 use core::str::from_utf8;
 
-use mnemosyne_abi::ChannelOp;
-use crate::{core::object::{handle::HandleID, invoke::Invocation, vfs::{debug_dump_handles, kernel_invoke}}, klogln};
+use vespertine_abi::{ChannelOp, DirectoryOp};
+use crate::{core::object::{handle::HandleID, invoke::Invocation, vfs::{debug_dump_handles, kernel_invoke}}, klog, klogln};
 
 pub extern "C" fn kernel_shell_thread(chan_handle_id: usize) -> ! {
     let chan_handle = HandleID(chan_handle_id);
     let mut command_bytes = [0u8; 128];
-
     loop {
         let pull_op = Invocation::Channel(ChannelOp::Pull { 
             buffer_ptr: command_bytes.as_mut_ptr(),
@@ -31,7 +30,11 @@ fn execute_shell_cmd(cmd: &str) -> &str {
     if cmd == "tree" {
         debug_dump_handles();
         ""
-    } else { 
+    } else if cmd == "ls" { 
+        klogln!("*ROOT:* ");
+        kernel_invoke(HandleID(0), Invocation::Directory(DirectoryOp::List(4))).expect("[FATAL] Cannot print root directory tree");
+        ""
+    } else {
         "" 
     }
 }

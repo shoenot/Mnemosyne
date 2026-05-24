@@ -3,9 +3,9 @@ use core::{ptr::addr_of, sync::atomic::{AtomicBool, AtomicUsize, Ordering}};
 use crate::{arch::x86_64::task::syscall::safe_copy_to, core::{object::{handle::HandleTable, invoke::{Invocation, InvocationError}, obj::KernelObject}, sync::RwLock}, memory::{vmm::VirtMemManager, ALLOCATOR}};
 use alloc::sync::Arc;
 
-use mnemosyne_abi::op::ProcOp;
-use mnemosyne_abi::ProcStatus;
-use mnemosyne_abi::{AccessRights, HandleID};
+use vespertine_abi::op::ProcOp;
+use vespertine_abi::ProcStatus;
+use vespertine_abi::{AccessRights, HandleID};
 
 pub static GLOBAL_PID: AtomicUsize = AtomicUsize::new(0);
 

@@ -9,7 +9,7 @@ use core::slice::from_raw_parts;
 use crate::core::object::handle::HandleID;
 use crate::core::object::invoke::Invocation;
 use crate::core::object::models::process::Process;
-use mnemosyne_abi::FileOp;
+use vespertine_abi::FileOp;
 use crate::core::object::vfs::kernel_invoke;
 use crate::klogln;
 use crate::memory::vmm::{align_up, VM_FLAG_EXEC, VM_FLAG_USER, VM_FLAG_WRITE};
@@ -60,7 +60,7 @@ pub fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderEr
     for ph in ph_iter {
         if ph.p_type == P_Type::PT_LOAD as u32 {
             klogln!(
-                "Mapping Segment: file offset 0x{:X} -> virt addr 0x{:X} file size: {}, mem_size: {}",
+                "[INFO] Mapping Segment: file offset 0x{:X} -> virt addr 0x{:X} file size: {}, mem_size: {}",
                 ph.p_offset, ph.p_vaddr, ph.p_filesz, ph.p_memsz
             );
 
@@ -99,6 +99,6 @@ pub fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderEr
         }
     }
 
-    klogln!("Ready to jump to entry 0x{:X}", header.e_entry);
+    klogln!("[INFO] Ready to jump to entry 0x{:X}", header.e_entry);
     Ok(header.e_entry as usize)
 }

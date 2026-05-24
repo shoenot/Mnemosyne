@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use mnemosyne_abi::{DirectoryOp, HandleID, Invocation};
+use vespertine_abi::{DirectoryOp, HandleID, Invocation};
 
 #[derive(Debug)]
 pub enum SysError { Success = 0,

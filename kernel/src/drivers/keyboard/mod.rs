@@ -24,7 +24,7 @@ use crate::util::bitwise::{
     unset_bit,
 };
 use crate::{klog, klogln};
-use mnemosyne_abi::op::ChannelOp;
+use vespertine_abi::op::ChannelOp;
 
 static KEYBOARD_GSI: AtomicUsize = AtomicUsize::new(1);
 static EDGE: AtomicBool = AtomicBool::new(true);
@@ -167,8 +167,14 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
 
                     let pull_op = Invocation::Channel(ChannelOp::Pull { buffer_ptr: null_mut() });
                     let _ = kernel_invoke(chan_handle, pull_op);
+                } else if c == '\x08' {
+                    let mut logger = LOGGER.lock();
+                    let writer = unsafe { logger.graphics_writer.assume_init_mut() };
+                    writer.backspace();
                 } else {
-                    klog!("{}", c);
+                    let mut logger = LOGGER.lock();
+                    let writer = unsafe { logger.graphics_writer.assume_init_mut() };
+                    writer.write_input_char(c);
                 }
             }
         }

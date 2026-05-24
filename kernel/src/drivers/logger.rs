@@ -10,6 +10,10 @@ use simple_psf::Psf;
 use super::graphics::{
     GraphicsWriter,
     SyncFramebuffer,
+    TextProcessor,
+    COLOR_BG,
+    COLOR_FG,
+    WriterLine,
 };
 use super::serial::{
     init_serial,
@@ -21,7 +25,7 @@ use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
 };
-use crate::drivers::graphics::WriterLine;
+use crate::drivers::graphics::ParseState;
 
 const FONT_DATA: &[u8] = include_bytes!("../../../build_deps/zap-ext-light16.psf");
 static FONT: KernelOnceCell<Psf<'static>> = KernelOnceCell::new();
@@ -54,12 +58,33 @@ impl Logger {
         init_serial();
         log_to_serial("\x1B[2J\x1B[H");
         let fb = get_framebuffer();
+        
+        // fill the entire fb with the bg color
+        let total_pixels = (fb.pitch / 4) as usize * fb.height as usize;
+        let ptr = fb.address() as *mut u32;
+        unsafe {
+            for i in 0..total_pixels {
+                ptr.add(i).write_volatile(COLOR_BG);
+            }
+        }
+
+        let font = FONT.get_or_init(|| load_font());
+        let max_rows = (fb.height - 32) / 16; // leaving 16px top and bottom margin
+        let max_cols = (fb.width - 32) / 8;   // same for left and right margin
+
         self.graphics_writer.write(GraphicsWriter {
-            current_line: 0,
-            lim_lines: ((fb.height / 16) - 1) as u32,
+            processor: TextProcessor {
+                current_row: 0,
+                current_col: 0,
+                max_rows: max_rows as u32,
+                max_cols: max_cols as u32,
+                fg_color: COLOR_FG,
+                bg_color: COLOR_BG,
+                font,
+                fb: SyncFramebuffer(fb),
+            },
+            parse_state: ParseState::Normal,
             line: WriterLine::new(),
-            font: FONT.get_or_init(|| load_font()),
-            fb: SyncFramebuffer(fb),
         });
         self.serial_writer.write(SerialWriter {});
     }
@@ -67,7 +92,7 @@ impl Logger {
 
 impl Write for Logger {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        // Write to both outputs
+        // write to both serial and screen
         unsafe {
             self.graphics_writer.assume_init_mut().write_str(s)?;
             self.serial_writer.assume_init_mut().write_str(s)?;

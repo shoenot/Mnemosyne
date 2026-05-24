@@ -14,16 +14,14 @@ use apic::lapic::get_apic_base;
 use crate::core::sync::TicketLock;
 use crate::memory::PAGER;
 use crate::{
-    klog,
     klogln,
 };
 
 pub static IO_APIC: TicketLock<IOApic> = TicketLock::new(IOApic { base_addr: 0, gsi_base: 0 });
 
 pub fn init_interrupts() {
-    klog!("INITIATING IDT...");
     interrupts::idt::init_idt();
-    klogln!("IDT INIT OK.");
+    klogln!("[SUCCESS] IDT Loaded.");
 }
 
 pub fn init_global_apics() {
@@ -40,14 +38,14 @@ pub fn init_global_apics() {
 pub fn map_lapic_memory() {
     let apic_phys = get_apic_base() as u64;
     let mut pager = PAGER.lock();
-    pager.map_mmio_addr(apic_phys).expect("Failed to map LAPIC MMIO");
+    pager.map_mmio_addr(apic_phys).expect("[FATAL] Failed to map LAPIC MMIO");
     drop(pager);
 }
 
 fn map_ioapic_memory(base_addr: u64) {
     let ioapic_phys = base_addr as u64;
     let mut pager = PAGER.lock();
-    pager.map_mmio_addr(ioapic_phys).expect("Failed to map IOAPIC MMIO");
+    pager.map_mmio_addr(ioapic_phys).expect("[FATAL] Failed to map IOAPIC MMIO");
     drop(pager);
 }
 

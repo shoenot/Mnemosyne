@@ -7,9 +7,9 @@ name = "kernel"
 version = "0.1.0"
 dependencies = [
  "limine",
- "mnemosyne-abi",
- "mnemosyne-common",
  "simple-psf",
+ "vespertine-abi",
+ "vespertine-common",
 ]
 
 [[package]]
@@ -19,27 +19,11 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "90b240f611eba0b43bf3e97478d87f12322c6c0f540bdad885c3e8c4a0d57333"
 
 [[package]]
-name = "mnemosyne-abi"
-version = "0.1.0"
-
-[[package]]
-name = "mnemosyne-common"
-version = "0.1.0"
-
-[[package]]
-name = "mnemosyne-rt"
-version = "0.1.0"
-dependencies = [
- "mnemosyne-abi",
- "mnemosyne-common",
-]
-
-[[package]]
 name = "shell"
 version = "0.1.0"
 dependencies = [
- "mnemosyne-abi",
- "mnemosyne-rt",
+ "vespertine-abi",
+ "vespertine-rt",
 ]
 
 [[package]]
@@ -47,3 +31,19 @@ name = "simple-psf"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8dfb5d24f130ce16dd7e608140773454eb92d69191c258e8af9d811bcab03f1d"
+
+[[package]]
+name = "vespertine-abi"
+version = "0.1.0"
+
+[[package]]
+name = "vespertine-common"
+version = "0.1.0"
+
+[[package]]
+name = "vespertine-rt"
+version = "0.1.0"
+dependencies = [
+ "vespertine-abi",
+ "vespertine-common",
+]

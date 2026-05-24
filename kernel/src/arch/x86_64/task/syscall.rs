@@ -131,7 +131,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
         let handle_id = (*frame).rdi;
         let uspace_inv_ptr = (*frame).rsi as *const Invocation;
 
-        klogln!("SYSCALL: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
+        klogln!("[INFO] *SYSCALL*: number: {:?}, handle_id: {:?}, uspace_inv_ptr: {:?}", syscall_number, handle_id, uspace_inv_ptr);
         let ret = match syscall_number {
             0 => {
                 if uspace_inv_ptr as usize >= 0xFFFF_8000_0000_0000 {

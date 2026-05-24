@@ -1,10 +1,10 @@
 use core::fmt;
 use core::str::Utf8Error;
 
-use mnemosyne_abi::op::{
+use vespertine_abi::op::{
     ChannelOp, ClockOp, DirectoryOp, FileOp, MemManOp, MemPoolOp, ProcManOp, ProcOp, VmoOp
 };
-use mnemosyne_abi::AccessRights;
+use vespertine_abi::AccessRights;
 
 #[derive(Debug)]
 pub enum InvocationError {

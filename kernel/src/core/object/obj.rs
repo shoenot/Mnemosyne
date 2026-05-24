@@ -5,7 +5,7 @@ use crate::core::object::invoke::{
     Invocation,
     InvocationError,
 };
-use mnemosyne_abi::AccessRights;
+use vespertine_abi::AccessRights;
 
 pub trait KernelObject: Send + Sync + Debug {
     fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError>;

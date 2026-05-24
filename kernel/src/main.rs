@@ -81,7 +81,8 @@ pub extern "C" fn kmain() -> ! {
     init_smp();
 
     time::init_realtime();
-    klogln!("Initialized Real Time Clock. Current time is: {}", epoch_to_datetime(time::get_realtime()));
+    klogln!("[SUCCESS] Initialized Real Time Clock.");
+    klogln!("[INFO] Current date and time: {}", epoch_to_datetime(time::get_realtime()));
 
     init_keyboard_irq();
     enable_interrupts();

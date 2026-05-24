@@ -4,8 +4,8 @@ pub mod syscall;
 mod memory;
 
 use core::{alloc::{GlobalAlloc, Layout}, arch::asm, panic::PanicInfo, ptr::null_mut};
-use mnemosyne_abi::{HandleID, Invocation, FileOp};
-use mnemosyne_common::{lock::TicketLock, slab::SlabAllocator};
+use vespertine_abi::{HandleID, Invocation, FileOp};
+use vespertine_common::{lock::TicketLock, slab::SlabAllocator};
 
 use crate::memory::{UserPageProvider, create_private_pool, get_memory_manager};
 
@@ -67,7 +67,7 @@ pub extern "sysv64" fn _start() -> ! {
 }
 
 fn main(root_handle: HandleID, self_handle: HandleID, console_handle:HandleID) {
-    let msg = "Hello from Mnemosyne Userspace!\n";
+    let msg = "Hello from Vespertine Userspace!\n";
     let write_op = Invocation::File(FileOp::Write { 
         offset: 0, 
         buffer_ptr: msg.as_ptr() as *mut u8, 

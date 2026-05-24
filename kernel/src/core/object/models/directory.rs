@@ -16,8 +16,8 @@ use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
 use crate::{klog, klogln};
 use core::borrow::Borrow;
-use mnemosyne_abi::op::DirectoryOp;
-use mnemosyne_abi::{AccessRights, HandleID};
+use vespertine_abi::op::DirectoryOp;
+use vespertine_abi::{AccessRights, HandleID};
 
 pub const FILENAME_LEN_MAX: usize = 255;
 

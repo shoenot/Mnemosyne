@@ -1,6 +1,6 @@
 use core::ptr::null_mut;
 
-use mnemosyne_common::slab::{PageProvider, SlabAllocator};
+use vespertine_common::slab::{PageProvider, SlabAllocator};
 use crate::memory::{ALLOCATOR, HHDMOFFSET, BlockSize};
 
 pub struct KernelPageProvider;

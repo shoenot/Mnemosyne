@@ -78,8 +78,6 @@ impl BitmapPMM {
                 }
             }
         }
-
-        log_to_serial("Init Bitmap stored at ");
         log_u64_to_serial(bitmap_virt_addr as u64);
         log_to_serial("\n");
         pmm

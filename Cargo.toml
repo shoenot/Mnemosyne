@@ -1,9 +1,9 @@
 [workspace]
 members = [
-    "kernel", 
-    "lib/mnemosyne-abi", 
-    "lib/mnemosyne-common", 
-    "lib/mnemosyne-rt", "userland/shell"]
+    "kernel",
+    "lib/vespertine-abi",
+    "lib/vespertine-common",
+    "lib/vespertine-rt", "userland/shell"]
 
 resolver = "2"
 
