@@ -68,6 +68,7 @@ impl Invocation {
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,
+            Invocation::Vmo(VmoOp::MapIntoProc { .. }) => AccessRights::MUTATE,
             Invocation::Proc(ProcOp::Kill) => AccessRights::WRITE,
             Invocation::Proc(ProcOp::GetStatus { .. }) => AccessRights::READ,
             Invocation::ProcessManager(ProcManOp::Spawn { .. }) => AccessRights::CREATE,

@@ -40,6 +40,20 @@ impl KernelObject for VmoObject {
 
                     Ok(handle_id.0 as usize)
                 },
+                VmoOp::MapIntoProc { vaddr, len, vm_flags } => {
+                    let current_proc = get_current_process()
+                        .ok_or(InvocationError::UnsupportedOperation)?;
+
+                    let mut vmm = current_proc.vmm.write();
+
+                    let mapped_addr = if vaddr == 0 { 
+                        vmm.mmap_vmo(len, vm_flags, self.vmo.clone())
+                    } else {
+                        vmm.mmap_vmo_at(vaddr, len, vm_flags, self.vmo.clone())
+                    };
+
+                    mapped_addr.ok_or(InvocationError::OutOfMemory)
+                },
             }
         } else {
             Err(InvocationError::UnsupportedOperation)

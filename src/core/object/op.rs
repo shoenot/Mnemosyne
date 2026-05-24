@@ -31,6 +31,7 @@ pub enum VmoOp {
     GetPage { offset: usize },
     Resize { new_size: usize },
     Clone { offset: usize, len: usize },
+    MapIntoProc { vaddr: usize, len: usize, vm_flags: usize }, 
 }
 
 #[repr(C)]

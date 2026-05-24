@@ -41,13 +41,8 @@ impl ProcessControlBlock {
         );
         
         // new processes get root at handle 0, self_id at handle 1 
-        let console_handle = kernel_walk("/Objects/ConsoleWriter", HandleID(0))
-            .expect("Couldn't find console handle");
-        let console_proc = KERNEL_PROCESS.proc_handles.read().resolve(console_handle, AccessRights::WRITE)
-            .expect("Couldn't find console process");
         proc.proc_handles.write().insert_at(HandleID(0), process_root, root_rights);
         proc.proc_handles.write().insert_at(HandleID(1), proc.clone(), AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
-        proc.proc_handles.write().insert_at(HandleID(2), console_proc.clone(), root_rights);
         proc
     }
 

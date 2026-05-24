@@ -1,4 +1,4 @@
-use crate::{kernel::{object::{handle::AccessRights, invoke::{Invocation, InvocationError}, models::process::ProcessControlBlock, obj::KernelObject, op::ProcManOp}, program::load_elf, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::vmm::{VM_FLAG_USER, VM_FLAG_WRITE}};
+use crate::{KERNEL_PROCESS, kernel::{object::{handle::{AccessRights, HandleID}, invoke::{Invocation, InvocationError}, models::process::ProcessControlBlock, obj::KernelObject, op::ProcManOp, vfs::kernel_walk}, program::load_elf, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::vmm::{VM_FLAG_USER, VM_FLAG_WRITE}};
 
 
 #[derive(Debug)]
@@ -30,6 +30,11 @@ impl KernelObject for ProcessManager {
                     .mmap(stack_size, VM_FLAG_USER | VM_FLAG_WRITE).ok_or(InvocationError::OutOfMemory)?;
                 let user_stack_top = stack_addr + stack_size;
 
+                let console_handle = kernel_walk("/Objects/ConsoleWriter", HandleID(0))
+                    .expect("Couldn't find console handle");
+                let console_proc = KERNEL_PROCESS.proc_handles.read().resolve(console_handle, AccessRights::WRITE)
+                    .expect("Couldn't find console process");
+                child_proc.proc_handles.write().insert_at(HandleID(2), console_proc.clone(), root_rights);
                 // spawn init thread
                 spawn_user_thread(entry_point, user_stack_top, 0, ThreadPriority::MEDIUM, child_proc.clone());
 
