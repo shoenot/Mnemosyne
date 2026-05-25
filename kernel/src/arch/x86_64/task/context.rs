@@ -80,6 +80,7 @@ impl ThreadContext {
         self.code_segment = USER_CS;
         self.stack_segment = USER_SS;
         self.cpu_flags = 0x202; // IF set
+
         self.rdi = arg;
     }
 }

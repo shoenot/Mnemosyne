@@ -1,4 +1,4 @@
-use core::{fmt::Display, intrinsics::copy_nonoverlapping, mem::zeroed};
+use core::{fmt::Display, ptr::copy_nonoverlapping, mem::zeroed};
 
 use alloc::{string::String, vec::Vec};
 
@@ -67,6 +67,7 @@ impl SysError {
             InvocationError::AccessDenied => SysError::AccessDenied,
             InvocationError::InvalidHandle => SysError::InvalidHandle,
             InvocationError::InvalidArgument => SysError::InvalidArgument,
+            InvocationError::InvalidPointer => SysError::InvalidPointer,
             InvocationError::UnsupportedOperation => SysError::UnsupportedOperation,
             InvocationError::BufferFull => SysError::BufferFull,
             InvocationError::OutOfMemory => SysError::OutOfMemory,

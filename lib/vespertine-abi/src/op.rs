@@ -59,6 +59,12 @@ pub enum ProcManOp {
         root_rights: AccessRights,
         source: HandleID,
         sink: HandleID,
+
+        extra_handles_ptr: *const crate::HandleGrant,
+        extra_handles_len: usize,
+
+        args_buffer_ptr: *const u8,
+        args_buffer_len: usize,
     },
 }
 

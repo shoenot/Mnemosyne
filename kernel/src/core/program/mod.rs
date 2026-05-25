@@ -1,4 +1,5 @@
 pub mod parser;
+pub mod env;
 use core::fmt;
 use parser::*;
 
@@ -6,11 +7,13 @@ use alloc::alloc::{alloc, Layout};
 use core::intrinsics::{copy_nonoverlapping, write_bytes};
 use core::slice::from_raw_parts;
 
-use vespertine_abi::{HandleID, Invocation};
+use vespertine_abi::{AccessRights, HandleID, Invocation};
+use crate::arch::get_core_data;
 use crate::core::object::models::process::Process;
+use crate::core::thread::get_current_process;
 use vespertine_abi::FileOp;
 use crate::core::object::vfs::kernel_invoke;
-use crate::klogln;
+use crate::{KERNEL_PROCESS, klogln};
 use crate::memory::vmm::{align_up, VM_FLAG_EXEC, VM_FLAG_USER, VM_FLAG_WRITE};
 use crate::memory::vmo::{PagedBackingStore, Vmo};
 use crate::memory::{HHDMOFFSET, NORMAL_PAGE_SIZE};
@@ -43,14 +46,42 @@ impl fmt::Display for LoaderError {
 }
 
 pub fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderError> {
-    let file_size = kernel_invoke(file_handle, Invocation::File(FileOp::Stat))
+    // IN USER THREAD CONTEXT 
+    let file_obj = get_current_process()
+        .ok_or(LoaderError::FileReadError)?
+        .proc_handles.read()
+        .resolve(file_handle, AccessRights::READ)
         .map_err(|_| LoaderError::FileReadError)?;
+
+    // SWITCH TO KERNEL PROCESS TEMPORARILY 
+    let current_thread = get_core_data().scheduler.get_current_thread();
+    let old_proc = unsafe { (*current_thread).process.clone() };
+
+    unsafe {
+        (*current_thread).process = KERNEL_PROCESS.get().unwrap().clone();
+    }
+
+    // Invoke object directly 
+    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ)
+        .map_err(|_| LoaderError::FileReadError)?;
+
     let file_layout = Layout::from_size_align(file_size, 8)
         .map_err(|_| LoaderError::FileReadError)?;
 
     let buffer_ptr = unsafe { alloc(file_layout) as *mut u8 };
-    kernel_invoke(file_handle, Invocation::File(FileOp::Read { offset: 0, buffer_ptr, len: file_size }))
-        .map_err(|_| LoaderError::FileReadError)?;
+
+    let read_result = file_obj.invoke(
+        Invocation::File(FileOp::Read { offset: 0, buffer_ptr, len: file_size }), 
+        AccessRights::READ,
+    );
+
+    // RESTORE USER PROCESS TO DROP PRIVILEGES
+    unsafe {
+        (*current_thread).process = old_proc;
+    }
+
+    read_result.map_err(|_| LoaderError::FileReadError)?;
+
     let file_bytes = unsafe { from_raw_parts(buffer_ptr, file_size) };
 
     let header = Elf64_Ehdr::from_bytes(file_bytes)?;

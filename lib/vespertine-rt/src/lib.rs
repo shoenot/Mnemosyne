@@ -4,10 +4,10 @@ pub mod syscall;
 mod memory;
 
 use core::{alloc::{GlobalAlloc, Layout}, arch::asm, panic::PanicInfo, ptr::null_mut};
-use vespertine_abi::{HandleID, Invocation, FileOp};
+use vespertine_abi::{FileOp, HandleID, Invocation, ProcessInitPackage};
 use vespertine_common::{lock::TicketLock, slab::SlabAllocator};
 
-use crate::memory::{UserPageProvider, create_private_pool, get_memory_manager};
+use crate::{memory::{UserPageProvider, create_private_pool, get_memory_manager}, syscall::sys_invoke};
 
 pub struct GlobalUserAlloc {
     inner: TicketLock<Option<SlabAllocator<UserPageProvider>>>,
@@ -48,16 +48,11 @@ pub fn init_heap() {
 }
 
 #[unsafe(no_mangle)]
-pub extern "sysv64" fn _start() -> ! {
-    let root_handle = HandleID(0);
-    let self_handle = HandleID(1);
-    let source_handle = HandleID(2);
-    let sink_handle = HandleID(3);
-
+pub extern "sysv64" fn _start(initpkg_ptr: *const ProcessInitPackage) -> ! {
     init_heap();
 
     unsafe {
-        main(root_handle, self_handle, source_handle, sink_handle);
+        main(initpkg_ptr);
     }
 
     unsafe {
@@ -70,10 +65,17 @@ pub extern "sysv64" fn _start() -> ! {
 }
 
 unsafe extern "sysv64" {
-    pub fn main(r: HandleID, s: HandleID, src: HandleID, snk: HandleID);
+    pub fn main(pkg: *const ProcessInitPackage);
 }
 
 #[panic_handler]
 fn panic(_info: &PanicInfo) -> ! {
+    let msg = "[PANIC] USERLAND PANIC\n";
+    let op = Invocation::File(FileOp::Write { 
+        offset: 0, buffer_ptr: msg.as_ptr() as *mut u8, len: msg.len()
+    });
+
+    let _ = sys_invoke(HandleID(3), &op);
+
     loop {}
 }

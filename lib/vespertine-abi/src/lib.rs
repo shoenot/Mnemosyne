@@ -1,9 +1,10 @@
 #![no_std]
 #![no_main]
 pub mod op;
+pub mod tag;
 mod bitwise;
 
-use core::fmt::Debug;
+use core::{fmt::Debug, option::Iter, slice};
 pub use op::*;
 
 #[repr(C)]
@@ -74,4 +75,33 @@ pub struct ProcStatus {
     pub active_threads: usize,
     pub is_terminated: bool,
     pub memory_usage: usize,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct HandleGrant {
+    pub id: HandleID,
+    pub rights: AccessRights,
+    pub tag: usize,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessInitPackage {
+    pub self_handle: HandleID,
+    pub root_handle: HandleID,
+    pub source_handle: HandleID,
+    pub sink_handle: HandleID,
+
+    pub extra_handles_ptr: *const HandleGrant,
+    pub extra_handles_len: usize,
+
+    pub argc: usize,
+    pub argv: *const *const u8,
+}
+
+impl ProcessInitPackage {
+    pub fn ext(&self) -> &[HandleGrant] {
+        unsafe { slice::from_raw_parts(self.extra_handles_ptr, self.extra_handles_len) }
+    }
 }

@@ -1,11 +1,13 @@
 use core::hint::spin_loop;
+use core::ptr::null;
 use core::sync::atomic::Ordering;
 
 use crate::arch::{
     enable_interrupts,
     get_core_data,
 };
-use vespertine_abi::{AccessRights, HandleID, Invocation};
+use vespertine_abi::tag::TAG_SYS_PROCMAN;
+use vespertine_abi::{AccessRights, HandleGrant, HandleID, Invocation};
 use crate::core::object::models::socket::init_ipc_pipeline;
 use crate::core::object::vfs::{kernel_invoke, kernel_register_obj, kernel_walk};
 use crate::core::shell::kernel_shell_thread;
@@ -54,13 +56,27 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     let pm_handle = kernel_walk("/Objects/ProcessManager", HandleID(0)).expect("[FATAL] No Process Manager found");
 
-    // userspace shell proc
+    // userspace init proc
+
+    // init package 
     let exec_handle = kernel_walk("/Programs/hesper", HandleID(0)).expect("[FATAL] No program found");
     let root_handle = HandleID(0);
     let root_rights = AccessRights::all();
     let source = kbd_sink_handle;
     let sink = console_handle;
-    let spawn_op = ProcManOp::Spawn { exec_handle, root_handle, root_rights, source, sink };
+    let extra_handles = [HandleGrant {
+        id: pm_handle,
+        rights: AccessRights::all(),
+        tag: TAG_SYS_PROCMAN,
+    }]; //pass the process manager itself into hesper bc it is init
+
+    let spawn_op = ProcManOp::Spawn { 
+        exec_handle, root_handle, root_rights, source, sink,
+        extra_handles_ptr: extra_handles.as_ptr(),
+        extra_handles_len: extra_handles.len(),
+        args_buffer_ptr: null(),
+        args_buffer_len: 0,
+    };
 
     let child_handle_id = kernel_invoke(pm_handle, Invocation::ProcessManager(spawn_op))
         .expect("[FATAL] Failed to spawn process");
