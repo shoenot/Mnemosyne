@@ -1,9 +1,11 @@
+mod logbuffer;
 use core::fmt::{
     self,
     Write,
 };
 use core::mem::MaybeUninit;
 
+use alloc::sync::Arc;
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 
@@ -26,11 +28,12 @@ use crate::core::sync::{
     TicketLock,
 };
 use crate::drivers::graphics::ParseState;
+pub use crate::drivers::logger::logbuffer::LogBuffer;
 
-const FONT_DATA: &[u8] = include_bytes!("../../../build_deps/zap-ext-light16.psf");
+const FONT_DATA: &[u8] = include_bytes!("../../../../build_deps/zap-ext-light16.psf");
 static FONT: KernelOnceCell<Psf<'static>> = KernelOnceCell::new();
 pub static LOGGER: TicketLock<Logger> =
-    TicketLock::new(Logger { graphics_writer: MaybeUninit::uninit(), serial_writer: MaybeUninit::uninit() });
+    TicketLock::new(Logger { graphics_writer: MaybeUninit::uninit(), serial_writer: MaybeUninit::uninit(), target: LogTarget::Graphics });
 
 fn load_font() -> Psf<'static> {
     match Psf::parse(FONT_DATA) {
@@ -48,9 +51,15 @@ fn get_framebuffer() -> &'static Framebuffer {
     panic!("CANNOT GET FRAMEBUFFER");
 }
 
+pub enum LogTarget {
+    Graphics,
+    Buffer(Arc<LogBuffer>),
+}
+
 pub struct Logger {
     pub graphics_writer: MaybeUninit<GraphicsWriter>,
     pub serial_writer: MaybeUninit<SerialWriter>,
+    pub target: LogTarget,
 }
 
 impl Logger {
@@ -85,19 +94,28 @@ impl Logger {
             },
             parse_state: ParseState::Normal,
             line: WriterLine::new(),
+            prompt_col: 0,
         });
         self.serial_writer.write(SerialWriter {});
+    }
+
+    pub fn write_screen(&mut self, s: &str) {
+        unsafe {
+            let _ = self.graphics_writer.assume_init_mut().write_str(s);
+        }
     }
 }
 
 impl Write for Logger {
     fn write_str(&mut self, s: &str) -> fmt::Result {
-        // write to both serial and screen
-        unsafe {
-            self.graphics_writer.assume_init_mut().write_str(s)?;
-            self.serial_writer.assume_init_mut().write_str(s)?;
-            Ok(())
+        // always write to serial
+        unsafe { self.serial_writer.assume_init_mut().write_str(s)?; }
+
+        match &self.target {
+            LogTarget::Graphics => unsafe { self.graphics_writer.assume_init_mut().write_str(s)?; },
+            LogTarget::Buffer(buf) => { buf.append(s); },
         }
+        Ok(())
     }
 }
 

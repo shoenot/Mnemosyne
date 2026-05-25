@@ -1,14 +1,16 @@
 use alloc::boxed::Box;
 use alloc::collections::btree_map::BTreeMap;
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::{
     slice,
     str,
+    format
 };
 use crate::arch::get_core_data;
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::core::object::invoke::InvocationError;
-use vespertine_abi::Invocation;
+use vespertine_abi::{FileOp, Invocation};
 use crate::core::object::obj::KernelObject;
 use crate::core::sync::RwLock;
 use crate::core::thread::get_current_process;
@@ -68,7 +70,7 @@ impl KernelObject for Directory {
             Invocation::Directory(DirectoryOp::Link { name, name_len, handle_id }) => self.link(name, name_len, handle_id),
             Invocation::Directory(DirectoryOp::Unlink { name, name_len }) => self.unlink(name, name_len),
             Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => self.lookup(name, name_len, calling_rights),
-            Invocation::Directory(DirectoryOp::List(offset)) => self.list_contents(offset),
+            Invocation::Directory(DirectoryOp::List { offset, sink }) => self.list_contents(offset, sink),
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -128,14 +130,29 @@ impl Directory {
         Ok(handle_id.0)
     }
 
-    fn list_contents(&self, offset: usize) -> Result<usize, InvocationError> {
+    fn list_contents(&self, offset: usize, sink: HandleID) -> Result<usize, InvocationError> {
+        let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
+        let sink_obj = proc.proc_handles.read().resolve(sink, AccessRights::WRITE)?;
+
         for (k, v) in &*(self.tree.read()) {
-            for _ in 0..offset {
-                klog!(" ");
-            }
-            klogln!("{}", k.name.clone());
+            let indent: String = (0..offset).map(|_| ' ').collect();
+            let line = format!("{}{}\n", indent, k.name);
+            sink_obj.invoke(
+                Invocation::File(
+                    FileOp::Write { 
+                        offset: 0, 
+                        buffer_ptr: line.as_ptr() as *mut u8, 
+                        len: line.len() 
+                    }
+                ),
+                AccessRights::WRITE,
+            )?;
+
             if v.type_name() == "Directory" {
-                v.invoke(Invocation::Directory(DirectoryOp::List(offset + 4)), AccessRights::all())?;
+                v.invoke(
+                    Invocation::Directory(DirectoryOp::List { offset: offset + 4, sink }), 
+                    AccessRights::WRITE
+                )?;
             }
         }
         Ok(0)

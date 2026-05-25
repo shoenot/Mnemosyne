@@ -5,8 +5,9 @@ use crate::syscall::{SysError, sys_close, sys_invoke, sys_lookup};
 
 pub fn get_memory_manager() -> Result<HandleID, SysError> {
     let root = HandleID(0);
-    let objects_dir = sys_lookup(root, "Objects")?;
-    let mem_man = sys_lookup(objects_dir, "MemoryManager")?;
+    let sys_dir = sys_lookup(root, "System")?;
+    let srv_dir = sys_lookup(sys_dir, "Services")?;
+    let mem_man = sys_lookup(srv_dir, "MemoryManager")?;
     Ok(mem_man)
 }
 

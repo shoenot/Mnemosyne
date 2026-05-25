@@ -6,11 +6,12 @@ use crate::arch::{
     enable_interrupts,
     get_core_data,
 };
-use vespertine_abi::tag::TAG_SYS_PROCMAN;
+use crate::drivers::logger::{LOGGER, LogBuffer, LogTarget};
+use alloc::sync::Arc;
+use vespertine_abi::tag::{TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{AccessRights, HandleGrant, HandleID, Invocation};
 use crate::core::object::models::socket::init_ipc_pipeline;
-use crate::core::object::vfs::{kernel_invoke, kernel_register_obj, kernel_walk};
-use crate::core::shell::kernel_shell_thread;
+use crate::core::object::vfs::{kernel_invoke, kernel_register_obj, kernel_walk, mount_kernel_dir};
 use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::reap::reaper_daemon;
@@ -40,7 +41,7 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER, KERNEL_PROCESS.clone());
 
-    let console_handle = kernel_walk("/Objects/ConsoleWriter", HandleID(0)).expect("[FATAL] No ConsoleWriter found");
+    let console_handle = kernel_walk("/System/Services/ConsoleWriter", HandleID(0)).expect("[FATAL] No ConsoleWriter found");
 
     // socket pair for keyboard
     let (kbd_source_handle, kbd_sink_handle) = init_ipc_pipeline();
@@ -54,7 +55,8 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     klogln!("[SUCCESS] Ramdisk read success: {}", core::str::from_utf8(&buf[..bytes_read]).unwrap());
 
-    let pm_handle = kernel_walk("/Objects/ProcessManager", HandleID(0)).expect("[FATAL] No Process Manager found");
+    let pm_handle = kernel_walk("/System/Services/ProcessManager", HandleID(0)).expect("[FATAL] No Process Manager found");
+    let sf_handle = kernel_walk("/System/Services/SocketFactory", HandleID(0)).expect("[FATAL] No Socket Factory found");
 
     // userspace init proc
 
@@ -62,13 +64,12 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
     let exec_handle = kernel_walk("/Programs/hesper", HandleID(0)).expect("[FATAL] No program found");
     let root_handle = HandleID(0);
     let root_rights = AccessRights::all();
-    let source = kbd_sink_handle;
+    let source = kbd_source_handle;
     let sink = console_handle;
-    let extra_handles = [HandleGrant {
-        id: pm_handle,
-        rights: AccessRights::all(),
-        tag: TAG_SYS_PROCMAN,
-    }]; //pass the process manager itself into hesper bc it is init
+    let extra_handles = [
+        HandleGrant { id: pm_handle, rights: AccessRights::all(), tag: TAG_SYS_PROCMAN, },
+        HandleGrant { id: sf_handle, rights: AccessRights::all(), tag: TAG_SYS_SOCKFAC, },
+    ]; 
 
     let spawn_op = ProcManOp::Spawn { 
         exec_handle, root_handle, root_rights, source, sink,
@@ -82,6 +83,15 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         .expect("[FATAL] Failed to spawn process");
 
     klogln!("[SUCCESS] Process spawn success. Handle: {}", child_handle_id);
+
+    let log_buffer = Arc::new(LogBuffer::new());
+    let logs_dir_handle = kernel_walk("/System/Logs", HandleID(0)).expect("[FATAL] Could not find Logs directory");
+    let log_handle = kernel_register_obj(log_buffer.clone(), AccessRights::READ);
+    mount_kernel_dir("kernel.log", log_handle, logs_dir_handle);
+
+    LOGGER.lock().target = LogTarget::Buffer(log_buffer);
+
+    klogln!("[INFO] Logger switched to log file");
 
     terminate_thread!();
 }

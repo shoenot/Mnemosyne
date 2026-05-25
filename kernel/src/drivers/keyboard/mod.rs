@@ -144,6 +144,7 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                     {
                         let mut logger = LOGGER.lock();
                         let writer = unsafe { logger.graphics_writer.assume_init_mut() };
+                        writer.erase_cursor(writer.prompt_col + writer.line.cursor as u32);
 
                         for i in 0..writer.line.len {
                             let ch = writer.line.buffer[i];
@@ -155,17 +156,21 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                         }
                         writer.erase_cursor(writer.line.len as u32);
                         writer.line.clear();
-                        }
-                        klogln!("");
+                        logger.write_screen("\n");
+                    }
 
-                        let write_op = Invocation::File(FileOp::Write { 
+                    if byte_len < byte_buffer.len() {
+                        byte_buffer[byte_len] = b'\n';
+                        byte_len += 1;
+                    }   
+
+                    let write_op = Invocation::File(FileOp::Write { 
                         offset: 0,
                         buffer_ptr: byte_buffer.as_mut_ptr(),
                         len: byte_len,
-                        });
-                        let _ = kernel_invoke(chan_handle, write_op);
-                        } else if c == '\x08' {
-
+                    });
+                    let _ = kernel_invoke(chan_handle, write_op);
+                } else if c == '\x08' {
                     let mut logger = LOGGER.lock();
                     let writer = unsafe { logger.graphics_writer.assume_init_mut() };
                     writer.backspace();

@@ -1,6 +1,8 @@
 use alloc::slice;
+use core::fmt::write;
+use core::fmt::Write;
 
-use crate::{arch::x86_64::task::syscall::safe_copy_from, core::object::{invoke::InvocationError, obj::KernelObject}, klogln};
+use crate::{arch::x86_64::task::syscall::safe_copy_from, core::object::{invoke::InvocationError, obj::KernelObject}, drivers::logger::LOGGER, klogln};
 use vespertine_abi::Invocation;
 
 use vespertine_abi::op::FileOp;
@@ -39,7 +41,12 @@ impl ConsoleWriter {
             str::from_utf8(str_bytes)?
         };
 
-        klogln!("{}", console_str);
+        {
+            let mut logger = LOGGER.lock();
+            let writer = unsafe { logger.graphics_writer.assume_init_mut() };
+            let _ = writer.write_str(console_str);
+            writer.set_prompt_end();
+        }
         Ok(0)
     }
 }

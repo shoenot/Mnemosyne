@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use vespertine_abi::{DirectoryOp, HandleID, Invocation};
+use vespertine_abi::{DirectoryOp, HandleID, Invocation, SocketOp};
 
 #[derive(Debug)]
 pub enum SysError { Success = 0,
@@ -63,6 +63,13 @@ pub fn sys_invoke(handle: HandleID, op: &Invocation) -> Result<usize, SysError> 
     }
 }
 
+pub fn sys_create_socket(factory: HandleID) -> Result<(HandleID, HandleID), SysError> {
+    let packed = sys_invoke(factory, &Invocation::Socket(
+            SocketOp::Create { sourceproc: HandleID(1), sinkproc: HandleID(1) }
+    ))?;
+    Ok((HandleID(packed & 0xFFFF_FFFF), HandleID(packed >> 32)))
+}
+
 pub fn sys_lookup(dir: HandleID, name: &str) -> Result<HandleID, SysError> {
     let op = Invocation::Directory(DirectoryOp::Lookup {
         name: name.as_ptr(),
@@ -88,4 +95,14 @@ pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
     if ret == 0 { Ok(()) } else { Err(SysError::from(ret)) }
 }
 
+pub fn walk_path(path: &str, root: HandleID) -> Result<HandleID, SysError> {
+    let mut current = root;
+    for segment in path.split('/').filter(|s| !s.is_empty()) {
+        let op = Invocation::Directory(DirectoryOp::Lookup { name: segment.as_ptr(), name_len: segment.len() });
+        let next = HandleID(sys_invoke(current, &op)?);
+        if current != root { sys_close(current)?; }
+        current = next;
+    }
+    Ok(current)
+}
 

@@ -219,6 +219,7 @@ pub struct GraphicsWriter {
     pub processor: TextProcessor,
     pub line: WriterLine,
     pub parse_state: ParseState,
+    pub prompt_col: u32,
 }
 
 impl core::fmt::Write for GraphicsWriter {
@@ -227,6 +228,7 @@ impl core::fmt::Write for GraphicsWriter {
             match c {
                 '\n' => {
                     self.processor.current_col = 0;
+                    self.prompt_col = 0;
                     self.inc_line();
                     self.line.clear();
                     continue;
@@ -331,11 +333,11 @@ impl GraphicsWriter {
     }
 
     pub fn write_input_char(&mut self, c: char) {
-        self.erase_cursor(self.line.cursor as u32);
+        self.erase_cursor(self.prompt_col + self.line.cursor as u32);
         if let Some(action) = self.line.write_char(c) {
             self.apply_render(action);
         }
-        self.draw_cursor(self.line.cursor as u32);
+        self.draw_cursor(self.prompt_col + self.line.cursor as u32);
     }
 
     pub fn backspace(&mut self) {
@@ -349,24 +351,35 @@ impl GraphicsWriter {
     fn apply_render(&mut self, action: RenderLine) {
         match action {
             RenderLine::Append(c) => {
-                let x = (self.line.cursor - 1) as u32;
-                self.processor.draw_char(c, x, self.processor.current_row, self.processor.fg_color, self.processor.bg_color);
+                let x = self.prompt_col + (self.line.cursor - 1) as u32;
+                self.processor.draw_char(c, x, self.processor.current_row, 
+                    self.processor.fg_color, self.processor.bg_color);
             }
             RenderLine::Insert { start } => {
                 for i in start..self.line.len {
-                    self.processor.clear_cell(i as u32, self.processor.current_row);
-                    self.processor.draw_char(self.line.buffer[i], i as u32, self.processor.current_row, self.processor.fg_color, self.processor.bg_color);
+                    let x = self.prompt_col + i as u32;
+                    self.processor.clear_cell(x, self.processor.current_row);
+                    self.processor.draw_char(self.line.buffer[i], x, 
+                        self.processor.current_row, 
+                        self.processor.fg_color, self.processor.bg_color);
                 }
             }
             RenderLine::BspcEnd => {
-                self.processor.clear_cell(self.line.cursor as u32, self.processor.current_row);
+                let x = self.prompt_col + self.line.cursor as u32;
+                self.processor.clear_cell(x, self.processor.current_row);
             }
             RenderLine::BspcMid { start, erase } => {
                 for i in start..self.line.len {
-                    self.processor.clear_cell(i as u32, self.processor.current_row);
-                    self.processor.draw_char(self.line.buffer[i], i as u32, self.processor.current_row, self.processor.fg_color, self.processor.bg_color);
+                    let x = self.prompt_col + i as u32;
+                    self.processor.clear_cell(x, self.processor.current_row);
+                    self.processor.draw_char(self.line.buffer[i], x, 
+                        self.processor.current_row,
+                        self.processor.fg_color, self.processor.bg_color);
                 }
-                self.processor.clear_cell(erase as u32, self.processor.current_row);
+                self.processor.clear_cell(
+                    self.prompt_col + erase as u32, 
+                    self.processor.current_row
+                );
             }
         }
     }
@@ -385,5 +398,9 @@ impl GraphicsWriter {
         for ypix in y_start..(y_start + 16) {
             putpixel(x, ypix, self.processor.bg_color, self.processor.fb.0);
         }
+    }
+
+    pub fn set_prompt_end(&mut self) {
+        self.prompt_col = self.processor.current_col;
     }
 }

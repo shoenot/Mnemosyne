@@ -107,8 +107,8 @@ pub fn give_user_string(user_buffer: *mut u8, kernel_string: String) -> Result<(
 }
 
 pub fn safe_copy_from(dst: *mut u8, src: *const u8, len: usize) -> bool {
-    let proc = get_current_process().unwrap();
-    if alloc::sync::Arc::ptr_eq(proc, KERNEL_PROCESS.get().unwrap()) {
+    // if src is a kernel address, just memcopy directly
+    if (src as usize) >= 0xFFFF_8000_0000_0000 {
         unsafe { copy_nonoverlapping(src, dst, len); }
         true
     } else {
@@ -117,8 +117,7 @@ pub fn safe_copy_from(dst: *mut u8, src: *const u8, len: usize) -> bool {
 }
 
 pub fn safe_copy_to(dst: *mut u8, src: *const u8, len: usize) -> bool {
-    let proc = get_current_process().unwrap();
-    if alloc::sync::Arc::ptr_eq(proc, KERNEL_PROCESS.get().unwrap()) {
+    if (dst as usize) >= 0xFFFF_8000_0000_0000 {
         unsafe { copy_nonoverlapping(src, dst, len); }
         true
     } else {

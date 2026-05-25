@@ -5,6 +5,7 @@ use crate::core::object::models::console::ConsoleWriter;
 use crate::core::object::models::directory::*;
 use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::procman::ProcessManager;
+use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::obj::KernelObject;
 use crate::core::object::vfs::{kernel_register_obj, mount_kernel_dir};
 use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
@@ -26,17 +27,20 @@ impl KernelObject for TestDevice {
 
 pub fn init_vfs() {
     let dev_dir = Arc::new(Directory::new());
-    let obj_dir = Arc::new(Directory::new());
-    let chan_dir = Arc::new(Directory::new());
+    let sys_dir = Arc::new(Directory::new());
+    let srv_dir = Arc::new(Directory::new());
+    let log_dir = Arc::new(Directory::new());
 
     let dev_handle = kernel_register_obj(dev_dir, AccessRights::READ | AccessRights::WRITE);
-    let obj_handle = kernel_register_obj(obj_dir, AccessRights::READ | AccessRights::WRITE);
-    let chan_handle = kernel_register_obj(chan_dir, AccessRights::READ | AccessRights::WRITE);
+    let sys_handle = kernel_register_obj(sys_dir, AccessRights::READ | AccessRights::WRITE);
+    let srv_handle = kernel_register_obj(srv_dir, AccessRights::READ | AccessRights::WRITE);
+    let log_handle = kernel_register_obj(log_dir, AccessRights::READ | AccessRights::WRITE);
 
     // mount all dirs 
     mount_kernel_dir("Devices", dev_handle, HandleID(0));
-    mount_kernel_dir("Objects", obj_handle, HandleID(0));
-    mount_kernel_dir("Channels", chan_handle, obj_handle);
+    mount_kernel_dir("System", sys_handle, HandleID(0));
+    mount_kernel_dir("Services", srv_handle, sys_handle);
+    mount_kernel_dir("Logs", log_handle, sys_handle);
 
     let ptr = get_ramdisk_ptr();
     let size = get_ramdisk_size();
@@ -44,17 +48,21 @@ pub fn init_vfs() {
 
     let proc_man = Arc::new(ProcessManager {});
     let proc_man_handle = kernel_register_obj(proc_man, AccessRights::all());
-    mount_kernel_dir("ProcessManager", proc_man_handle, obj_handle);
+    mount_kernel_dir("ProcessManager", proc_man_handle, srv_handle);
 
     let mem_man = Arc::new(MemoryManager {});
     let mem_man_handle = kernel_register_obj(mem_man, AccessRights::all());
-    mount_kernel_dir("MemoryManager", mem_man_handle, obj_handle);
+    mount_kernel_dir("MemoryManager", mem_man_handle, srv_handle);
 
     let clock = Arc::new(Clock {});
     let clock_handle = kernel_register_obj(clock, AccessRights::all());
-    mount_kernel_dir("Clock", clock_handle, obj_handle);
+    mount_kernel_dir("Clock", clock_handle, srv_handle);
 
     let console = Arc::new(ConsoleWriter {});
     let console_handle = kernel_register_obj(console, AccessRights::all());
-    mount_kernel_dir("ConsoleWriter", console_handle, obj_handle);
+    mount_kernel_dir("ConsoleWriter", console_handle, srv_handle);
+
+    let socket_fac = Arc::new(SocketFactory {});
+    let socket_fac_handle = kernel_register_obj(socket_fac, AccessRights::all());
+    mount_kernel_dir("SocketFactory", socket_fac_handle, srv_handle);
 }

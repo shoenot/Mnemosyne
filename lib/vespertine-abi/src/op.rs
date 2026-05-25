@@ -21,7 +21,7 @@ pub enum DirectoryOp {
     Link { name: *const u8, name_len: usize, handle_id: HandleID },
     Unlink { name: *const u8, name_len: usize },
     Lookup { name: *const u8, name_len: usize },
-    List(usize),
+    List { offset: usize, sink: HandleID },
 }
 
 #[repr(C)]
