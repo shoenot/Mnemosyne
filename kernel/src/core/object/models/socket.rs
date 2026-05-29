@@ -7,8 +7,8 @@ use crate::core::object::obj::KernelObject;
 use crate::core::object::invoke::InvocationError;
 use crate::core::thread::ThreadState;
 use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::wait::WaitQueue;
-use vespertine_abi::{HandleID, Invocation, Signal};
+use crate::core::thread::wait::{MultiWakeQueue, WaitQueue};
+use vespertine_abi::{HandleID, Invocation, Signal, WaitOp};
 use vespertine_abi::op::{FileOp, SocketOp};
 use vespertine_abi::AccessRights;
 use crate::arch::x86_64::task::syscall::{safe_copy_from, safe_copy_to};
@@ -77,6 +77,7 @@ pub struct SocketBus {
     pub is_closed: AtomicBool,
     pub read_waiters: TicketLock<WaitQueue>,
     pub write_waiters: TicketLock<WaitQueue>,
+    pub multi_read_waiters: TicketLock<MultiWakeQueue>,
 }
 
 impl SocketBus {
@@ -87,6 +88,7 @@ impl SocketBus {
             is_closed: AtomicBool::new(false),
             read_waiters: TicketLock::new(WaitQueue::new()),
             write_waiters: TicketLock::new(WaitQueue::new()),
+            multi_read_waiters: TicketLock::new(MultiWakeQueue::new()),
         }
     }
 }
@@ -124,12 +126,16 @@ impl KernelObject for SocketEndpoint {
                 self.is_nb.store(nb, Ordering::SeqCst);
                 Ok(0)
             },
-            Invocation::Wait(signal) => {
+            Invocation::Wait(WaitOp::One(signal)) => {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
                 self.wait_for_signals(signal)
             },
+            Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
+                // invoke through ProcessControlBlock::invoke, not here manually 
+                Err(InvocationError::UnsupportedOperation)
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -276,6 +282,8 @@ impl SocketEndpoint {
                     let mut wq = self.write_bus.read_waiters.lock();
                     let thread = wq.pop();
                     drop(wq);
+
+                    self.write_bus.multi_read_waiters.lock().wake_all();
 
                     if int_state { enable_interrupts(); }
 

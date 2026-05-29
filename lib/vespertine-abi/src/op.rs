@@ -96,3 +96,10 @@ pub enum ClockOp {
     GetTimestamp,
 }
 
+#[repr(C)]
+#[derive(Debug)]
+pub enum WaitOp {
+    One(Signal),
+    Many { items_ptr: *mut WaitItem, count: usize },
+}
+

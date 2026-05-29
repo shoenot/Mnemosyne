@@ -1,7 +1,6 @@
 mod scancodes;
 use scancodes::*;
 
-use core::ptr::null_mut;
 use core::sync::atomic::{
     AtomicBool,
     AtomicUsize,
@@ -17,13 +16,10 @@ use crate::core::acpi;
 use vespertine_abi::{HandleID, Invocation, op::FileOp};
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::Semaphore;
-use crate::drivers::logger::LOGGER;
 use crate::util::bitwise::{
     set_bit,
     unset_bit,
 };
-use crate::klogln;
-use vespertine_abi::op::ChannelOp;
 
 static KEYBOARD_GSI: AtomicUsize = AtomicUsize::new(1);
 static EDGE: AtomicBool = AtomicBool::new(true);
@@ -86,7 +82,6 @@ pub fn init_keyboard_irq() {
     }
 }
 
-#[allow(unused)]
 pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
     let chan_handle = HandleID(chan_handle_id);
     let mut shift_held = false;
@@ -137,48 +132,15 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
             }
 
             if c != '\0' {
-                if c == '\n' {
-                    let mut byte_buffer = [0u8; 64];
-                    let mut byte_len = 0;
+                let mut byte_buffer = [0u8; 4];
+                let byte_len = c.encode_utf8(&mut byte_buffer).len();
 
-                    {
-                        let mut logger = LOGGER.lock();
-                        let writer = unsafe { logger.graphics_writer.assume_init_mut() };
-                        writer.erase_cursor(writer.prompt_col + writer.line.cursor as u32);
-
-                        for i in 0..writer.line.len {
-                            let ch = writer.line.buffer[i];
-                            let char_len = ch.len_utf8();
-                            if byte_len + char_len <= 64 {
-                                ch.encode_utf8(&mut byte_buffer[byte_len..]);
-                                byte_len += char_len;
-                            }
-                        }
-                        writer.erase_cursor(writer.line.len as u32);
-                        writer.line.clear();
-                        logger.write_screen("\n");
-                    }
-
-                    if byte_len < byte_buffer.len() {
-                        byte_buffer[byte_len] = b'\n';
-                        byte_len += 1;
-                    }   
-
-                    let write_op = Invocation::File(FileOp::Write { 
-                        offset: 0,
-                        buffer_ptr: byte_buffer.as_mut_ptr(),
-                        len: byte_len,
-                    });
-                    let _ = kernel_invoke(chan_handle, write_op);
-                } else if c == '\x08' {
-                    let mut logger = LOGGER.lock();
-                    let writer = unsafe { logger.graphics_writer.assume_init_mut() };
-                    writer.backspace();
-                } else {
-                    let mut logger = LOGGER.lock();
-                    let writer = unsafe { logger.graphics_writer.assume_init_mut() };
-                    writer.write_input_char(c);
-                }
+                let write_op = Invocation::File(FileOp::Write { 
+                    offset: 0,
+                    buffer_ptr: byte_buffer.as_mut_ptr(),
+                    len: byte_len,
+                });
+                let _ = kernel_invoke(chan_handle, write_op);
             }
         }
 

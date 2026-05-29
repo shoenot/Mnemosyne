@@ -1,39 +1,36 @@
-mod logbuffer;
 use core::fmt::{
     self,
     Write,
 };
 use core::mem::MaybeUninit;
+use core::{ptr, str};
 
-use alloc::sync::Arc;
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 
-use super::graphics::{
-    GraphicsWriter,
-    SyncFramebuffer,
-    TextProcessor,
-    COLOR_BG,
-    COLOR_FG,
-    WriterLine,
-};
 use super::serial::{
     init_serial,
     log_to_serial,
     SerialWriter,
 };
+use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::boot::FRAMEBUFFER_REQUEST;
 use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
 };
-use crate::drivers::graphics::ParseState;
-pub use crate::drivers::logger::logbuffer::LogBuffer;
+
+use crate::core::object::obj::KernelObject;
+use crate::core::object::invoke::InvocationError;
+use vespertine_abi::{AccessRights, Invocation};
+use vespertine_abi::op::FileOp;
+use alloc::sync::Arc;
+
+pub const COLOR_BG: u32 = 0x11080d;       
+pub const COLOR_FG: u32 = 0xe0ddd8;       
 
 const FONT_DATA: &[u8] = include_bytes!("../../../../build_deps/zap-ext-light16.psf");
 static FONT: KernelOnceCell<Psf<'static>> = KernelOnceCell::new();
-pub static LOGGER: TicketLock<Logger> =
-    TicketLock::new(Logger { graphics_writer: MaybeUninit::uninit(), serial_writer: MaybeUninit::uninit(), target: LogTarget::Graphics });
 
 fn load_font() -> Psf<'static> {
     match Psf::parse(FONT_DATA) {
@@ -42,71 +39,107 @@ fn load_font() -> Psf<'static> {
     }
 }
 
-fn get_framebuffer() -> &'static Framebuffer {
-    if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
-        if let Some(fb) = fb_response.framebuffers().first() {
-            return *fb;
-        }
-    };
-    panic!("CANNOT GET FRAMEBUFFER");
-}
-
-pub enum LogTarget {
-    Graphics,
-    Buffer(Arc<LogBuffer>),
-}
+pub static LOGGER: TicketLock<Logger> = TicketLock::new(Logger {
+    serial_writer: MaybeUninit::uninit(),
+    screen_enabled: true,
+    current_row: 0,
+    current_col: 0,
+    max_rows: 0,
+    max_cols: 0,
+});
 
 pub struct Logger {
-    pub graphics_writer: MaybeUninit<GraphicsWriter>,
     pub serial_writer: MaybeUninit<SerialWriter>,
-    pub target: LogTarget,
+    pub screen_enabled: bool,
+    pub current_row: u32,
+    pub current_col: u32,
+    pub max_rows: u32,
+    pub max_cols: u32,
 }
 
 impl Logger {
     pub fn init(&mut self) {
         init_serial();
         log_to_serial("\x1B[2J\x1B[H");
-        let fb = get_framebuffer();
-        
-        // fill the entire fb with the bg color
-        let total_pixels = (fb.pitch / 4) as usize * fb.height as usize;
-        let ptr = fb.address() as *mut u32;
-        unsafe {
-            for i in 0..total_pixels {
-                ptr.add(i).write_volatile(COLOR_BG);
-            }
-        }
-
-        let font = FONT.get_or_init(|| load_font());
-        let max_rows = (fb.height - 32) / 16; // leaving 16px top and bottom margin
-        let max_cols = (fb.width - 32) / 8;   // same for left and right margin
-
-        self.graphics_writer.write(GraphicsWriter {
-            processor: TextProcessor {
-                current_row: 0,
-                current_col: 0,
-                max_rows: max_rows as u32,
-                max_cols: max_cols as u32,
-                fg_color: COLOR_FG,
-                bg_color: COLOR_BG,
-                font,
-                fb: SyncFramebuffer(fb),
-            },
-            parse_state: ParseState::Normal,
-            line: WriterLine::new(),
-            prompt_col: 0,
-        });
         self.serial_writer.write(SerialWriter {});
-    }
 
-    pub fn write_screen(&mut self, s: &str) {
-        unsafe {
-            let _ = self.graphics_writer.assume_init_mut().write_str(s);
+        if let Some(fb_response) = FRAMEBUFFER_REQUEST.response() {
+            if let Some(fb) = fb_response.framebuffers().first() {
+                // fill the entire fb with the bg color at early boot
+                let total_pixels = (fb.pitch / 4) as usize * fb.height as usize;
+                let ptr = fb.address() as *mut u32;
+                unsafe {
+                    for i in 0..total_pixels {
+                        ptr.add(i).write_volatile(COLOR_BG);
+                    }
+                }
+
+                self.max_rows = ((fb.height - 32) / 16) as u32;
+                self.max_cols = ((fb.width - 32) / 8) as u32;
+                self.current_row = 0;
+                self.current_col = 0;
+            }
         }
     }
 
     pub fn write_serial_only(&mut self, s: &str) -> fmt::Result {
         unsafe { self.serial_writer.assume_init_mut().write_str(s) }
+    }
+
+    pub fn write_screen(&mut self, s: &str) {
+        let Some(fb_response) = FRAMEBUFFER_REQUEST.response() else { return };
+        let Some(fb) = fb_response.framebuffers().first() else { return };
+        let font = FONT.get_or_init(|| load_font());
+
+        for c in s.chars() {
+            if c == '\n' {
+                self.current_col = 0;
+                self.inc_line(fb);
+                continue;
+            }
+            if c == '\r' {
+                self.current_col = 0;
+                continue;
+            }
+
+            if self.current_col >= self.max_cols {
+                self.current_col = 0;
+                self.inc_line(fb);
+            }
+
+            putchar(c, self.current_col, self.current_row, font, fb, COLOR_FG, COLOR_BG);
+            self.current_col += 1;
+        }
+    }
+
+    fn inc_line(&mut self, fb: &Framebuffer) {
+        if self.current_row < self.max_rows - 1 {
+            self.current_row += 1;
+        } else {
+            self.scroll(fb);
+        }
+    }
+
+    fn scroll(&mut self, fb: &Framebuffer) {
+        let pitch = fb.pitch as usize;
+        let address = fb.address() as *mut u8;
+        let start_y = 16;
+        let scroll_amount = 16 * pitch;
+        let copy_size = (self.max_rows as usize - 1) * 16 * pitch;
+
+        unsafe {
+            let dest = address.add(start_y * pitch);
+            let src = dest.add(scroll_amount);
+            ptr::copy(src, dest, copy_size);
+        }
+
+        // clear the last line
+        let last_row_y_start = (self.max_rows - 1) * 16 + 16;
+        for ypix in last_row_y_start..(last_row_y_start + 16) {
+            for xpix in 16..(16 + self.max_cols * 8) {
+                putpixel(xpix, ypix, COLOR_BG, fb);
+            }
+        }
     }
 }
 
@@ -115,11 +148,72 @@ impl Write for Logger {
         // always write to serial
         unsafe { self.serial_writer.assume_init_mut().write_str(s)?; }
 
-        match &self.target {
-            LogTarget::Graphics => unsafe { self.graphics_writer.assume_init_mut().write_str(s)?; },
-            LogTarget::Buffer(buf) => { buf.append(s); },
+        if self.screen_enabled {
+            self.write_screen(s);
         }
         Ok(())
+    }
+}
+
+pub fn disable_screen_logging() {
+    LOGGER.lock().screen_enabled = false;
+}
+
+fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) {
+    let pixels_per_row = fb.pitch / 4;
+    let ptr = fb.address().cast::<u32>();
+
+    if x < fb.width as u32 && y < fb.height as u32 {
+        unsafe {
+            ptr.add((y * pixels_per_row as u32 + x) as usize).write_volatile(color);
+        }
+    }
+}
+
+fn putchar(c: char, col: u32, row: u32, font: &Psf, fb: &Framebuffer, fg: u32, bg: u32) {
+    let x_base = (col * 8) + 16;  // 16px left margin
+    let y_base = (row * 16) + 16; // 16px top margin
+    let Some(pixels) = font.get_glyph_pixels(c as usize) else { return };
+    pixels.enumerate().for_each(|(i, p)| {
+        let px = x_base + (i as u32 % 8);
+        let py = y_base + (i as u32 / 8);
+        let color = if p { fg } else { bg };
+        putpixel(px, py, color, fb);
+    });
+}
+
+// boot time minimal screenwriter object
+#[derive(Debug)]
+pub struct ScreenWriter {}
+
+impl KernelObject for ScreenWriter {
+    fn type_name(&self) -> &'static str {
+        "ScreenWriter"
+    }
+
+    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+        match invocation {
+            Invocation::File(FileOp::Write { offset, buffer_ptr, len }) => {
+                if !calling_rights.contains(AccessRights::WRITE) {
+                    return Err(InvocationError::AccessDenied);
+                }
+
+                if len > 1024 {
+                    return Err(InvocationError::BufferFull);
+                }
+
+                let mut buf = [0u8; 1024];
+                if !safe_copy_from(buf.as_mut_ptr(), buffer_ptr, len) {
+                    return Err(InvocationError::InvalidPointer);
+                }
+                if let Ok(s) = str::from_utf8(&buf[..len]) {
+                    let mut logger = LOGGER.lock();
+                    logger.write_screen(s);
+                }
+                Ok(len)
+            }
+            _ => Err(InvocationError::UnsupportedOperation),
+        }
     }
 }
 

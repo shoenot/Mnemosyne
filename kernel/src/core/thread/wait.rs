@@ -1,10 +1,12 @@
 use core::ptr::null_mut;
 use core::sync::atomic::{
-    AtomicUsize,
-    Ordering,
+    AtomicBool, AtomicUsize, Ordering
 };
 
+use alloc::vec::Vec;
+
 use crate::core::thread::ThreadControlBlock;
+use crate::core::thread::dispatch::wake_thread;
 use crate::impl_queue_methods;
 
 #[derive(Debug)]
@@ -21,3 +23,51 @@ impl WaitQueue {
 }
 
 impl_queue_methods!(WaitQueue, ThreadControlBlock, head, tail);
+
+pub struct WakeToken {
+    pub fired: AtomicBool,
+    pub thread: *mut ThreadControlBlock,
+}
+
+unsafe impl Send for WakeToken {}
+unsafe impl Sync for WakeToken {}
+
+impl WakeToken {
+    pub fn new(thread: *mut ThreadControlBlock) -> Self {
+        Self { fired: AtomicBool::new(false), thread }
+    }
+}
+
+#[derive(Debug)]
+pub struct MultiWakeQueue {
+    tokens: Vec<*mut WakeToken>,
+}
+
+unsafe impl Send for MultiWakeQueue {}
+
+impl MultiWakeQueue {
+    pub fn new() -> Self {
+        Self { tokens: Vec::new() }
+    }
+
+    pub fn push(&mut self, token: *mut WakeToken) {
+        self.tokens.push(token);
+    }
+
+    pub fn wake_all(&mut self) {
+        for token_ptr in self.tokens.drain(..) {
+            unsafe {
+                let token = &*token_ptr;
+                if token.fired
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_ok() {
+                    wake_thread(token.thread);
+                }
+            }
+        }
+    }
+
+    pub fn remove(&mut self, token: *mut WakeToken) {
+        self.tokens.retain(|&x| x != token);
+    }
+}

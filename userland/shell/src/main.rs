@@ -9,12 +9,14 @@ use alloc::str;
 use alloc::string::String;
 use alloc::vec::Vec;
 use vespertine_abi::AccessRights;
+use vespertine_abi::ClockOp;
 use vespertine_abi::FileOp;
 use vespertine_abi::HandleGrant;
 use vespertine_abi::HandleID;
 use vespertine_abi::Invocation;
 use vespertine_abi::ProcManOp;
 use vespertine_abi::ProcessInitPackage;
+use vespertine_abi::tag::TAG_SYS_CLOCK;
 use vespertine_abi::tag::TAG_SYS_PROCMAN;
 use vespertine_abi::tag::TAG_SYS_SOCKFAC;
 use vespertine_rt::print;
@@ -51,7 +53,14 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .ok_or(Error { kind: ErrorKind::AccessDenied, message: "Socket Factory capability not found" })?.id;
 
     loop {
-        print!(">> ");
+        if let Some(col) = get_cursor_column() {
+            if col > 1 {
+                // print newline if the last program's output didn't do it
+                println!("");
+            }
+        }
+
+        print!("\x1b[35m>> \x1b[0m");
         let mut buf = [0u8; 128];
         let n = read_line(&mut buf);
         let line = str::from_utf8(&buf[..n])
@@ -84,7 +93,24 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
                 sock.close_write();
                 print_stream(&sock)?;
-            }
+            },
+            "dt" => {
+                let mut sock = Socket::new().expect("Error creating socket pair");
+                let clk = walk_path("/System/Services/Clock", env::root())?;
+                let clkg = HandleGrant { id: clk, rights: AccessRights::READ, tag: TAG_SYS_CLOCK, };
+                match Exec::new("dt")
+                    .args(&args_vec)
+                    .sink(sock.write_handle()?)
+                    .root_rights(AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE)
+                    .grant(clkg)
+                    .spawn() {
+                    Ok(_) => {},
+                    Err(e) => println!("[ERROR] dt spawn error: {:?}", e),
+                }
+
+                sock.close_write();
+                print_stream(&sock)?;
+            },
             other => {println!("unknown command: {}", other)},
         }
     }
@@ -120,3 +146,48 @@ pub fn pipe_to_sink(source: HandleID, sink: HandleID) {
     }
 }
 
+fn read_char() -> Option<u8> {
+    let mut b = 0u8;
+    let op = FileOp::Read { offset: 0, buffer_ptr: &mut b as *mut u8, len: 1 };
+    match sys_invoke(env::source(), &Invocation::File(op)) {
+        Ok(n) if n > 0 => Some(b),
+        _ => None,
+    }
+}
+
+fn get_cursor_column() -> Option<usize> {
+    // send ansi esc sequence query
+    vespertine_rt::print!("\x1b[6n");
+
+    // expect escape (0x1B)
+    if read_char()? != 0x1B { return None; }
+    // expect '[' (0x5B)
+    if read_char()? != 0x5B { return None; }
+
+    // skip row digits until semicolon
+    loop {
+        let c = read_char()?;
+        if c == b';' {
+            break;
+        }
+        if !c.is_ascii_digit() {
+            return None;
+        }
+    }
+
+    // read col digits until R
+    let mut col = 0;
+    loop {
+        let c = read_char()?;
+        if c == b'R' {
+            break;
+        }
+        if c.is_ascii_digit() {
+            col = col * 10 + (c - b'0') as usize;
+        } else {
+            return None;
+        }
+    }
+
+    Some(col)
+}

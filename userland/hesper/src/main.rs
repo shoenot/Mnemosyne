@@ -27,19 +27,21 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     // create comms sockets 
     let (hesper_end, client_end) = sys_create_socket(sf_handle).map_err(Error::from)?;
     let hesper_sock = Socket::from_read_handle(hesper_end);
-    hesper_sock.setnb(true);
+    let _ = hesper_sock.setnb(true);
 
     println!("[INFO] Launching shell...");
     let pm_grant = HandleGrant { id: pm_handle, rights: AccessRights::all(), tag: TAG_SYS_PROCMAN, };
     let sf_grant = HandleGrant { id: sf_handle, rights: AccessRights::all(), tag: TAG_SYS_SOCKFAC, };
     let sock_grant = HandleGrant { id: client_end, rights: AccessRights::READ | AccessRights::WRITE, tag: TAG_SYS_RES_MAN, };
 
-    Exec::new("shell".into())
+    Exec::new("terminal")
+        .source(env::source())
+        .sink(env::sink())
         .root_rights(AccessRights::all())
         .grant(pm_grant)
         .grant(sf_grant)
         .grant(sock_grant)
-        .spawn();
+        .spawn()?;
     
     println!("[INFO] Hesper entering event loop...");
     loop { 

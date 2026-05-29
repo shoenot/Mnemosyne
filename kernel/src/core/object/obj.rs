@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use core::fmt::Debug;
+use core::{any::{Any, TypeId}, fmt::Debug};
 
 use crate::core::object::invoke::InvocationError;
 use vespertine_abi::{AccessRights, Invocation};

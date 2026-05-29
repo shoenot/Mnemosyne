@@ -1,7 +1,6 @@
 use vespertine_abi::{AccessRights, HandleID, Invocation};
 use crate::core::object::invoke::InvocationError;
 use crate::core::object::models::clock::Clock;
-use crate::core::object::models::console::ConsoleWriter;
 use crate::core::object::models::directory::*;
 use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::procman::ProcessManager;
@@ -9,6 +8,7 @@ use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::obj::KernelObject;
 use crate::core::object::vfs::{kernel_register_obj, mount_kernel_dir};
 use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
+use crate::drivers::video::init_framebuffer;
 use crate::klogln;
 
 use alloc::sync::Arc;
@@ -58,11 +58,11 @@ pub fn init_vfs() {
     let clock_handle = kernel_register_obj(clock, AccessRights::all());
     mount_kernel_dir("Clock", clock_handle, srv_handle);
 
-    let console = Arc::new(ConsoleWriter {});
-    let console_handle = kernel_register_obj(console, AccessRights::all());
-    mount_kernel_dir("ConsoleWriter", console_handle, srv_handle);
-
     let socket_fac = Arc::new(SocketFactory {});
     let socket_fac_handle = kernel_register_obj(socket_fac, AccessRights::all());
     mount_kernel_dir("SocketFactory", socket_fac_handle, srv_handle);
+
+    let fb_obj = Arc::new(init_framebuffer());
+    let fb_handle = kernel_register_obj(fb_obj, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
+    mount_kernel_dir("Framebuffer", fb_handle, dev_handle);
 }

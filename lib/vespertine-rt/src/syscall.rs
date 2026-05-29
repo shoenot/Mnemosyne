@@ -1,6 +1,6 @@
 use core::arch::asm;
 
-use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, Signal, SocketOp};
+use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, Signal, SocketOp, WaitOp};
 
 #[derive(Debug)]
 pub enum SysError { Success = 0,
@@ -103,6 +103,10 @@ pub fn sys_write(handle: HandleID, buffer_ptr: *const u8, len: usize, offset: us
     sys_invoke(handle, &Invocation::File(op))
 }
 
+pub fn sys_write_bytes(handle: HandleID, data: &[u8]) -> Result<usize, SysError> {
+    sys_write(handle, data.as_ptr(), data.len(), 0)
+}
+
 pub fn sys_close(handle: HandleID) -> Result<(), SysError> {
     let ret: usize;
     unsafe {
@@ -124,5 +128,5 @@ pub fn sys_set_nb(handle: HandleID, nb: bool) -> Result<usize, SysError> {
 }
 
 pub fn sys_wait(handle: HandleID, signal: Signal) -> Result<usize, SysError> {
-    sys_invoke(handle, &Invocation::Wait(signal))
+    sys_invoke(handle, &Invocation::Wait(WaitOp::One(signal)))
 }

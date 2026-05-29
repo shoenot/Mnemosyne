@@ -8,6 +8,7 @@ use crate::{core::sync::TicketLock, memory::{ALLOCATOR, BlockSize, GLOBAL_PMM, H
 pub struct Vmo {
     pub size: AtomicUsize,
     pub pages: TicketLock<BTreeMap<usize, usize>>,
+    pub is_physical: bool,
 }
 
 pub trait PagedBackingStore: Send + Sync + Debug {
@@ -30,6 +31,10 @@ impl PagedBackingStore for Vmo {
             if pfn != 0 { return Ok(pfn) };
         }
 
+        if self.is_physical {
+            return Err(());
+        }
+
         // allocate directly from the pmm 
         let pfn = ALLOCATOR.alloc(BlockSize::Normal);
         pages.insert(offset, pfn);
@@ -37,6 +42,9 @@ impl PagedBackingStore for Vmo {
     }
 
     fn resize_object(&self, new_size: usize) -> Result<(), ()> {
+        if self.is_physical {
+            return Err(());
+        }
         let mut pages = self.pages.lock();
         let old_size = self.size.load(Ordering::Relaxed);
 
@@ -71,6 +79,9 @@ impl PagedBackingStore for Vmo {
     }
 
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()> {
+        if self.is_physical {
+            return Err(());
+        }
         let pages = self.pages.lock();
         let current_size = self.size.load(Ordering::Relaxed);
 
@@ -102,6 +113,7 @@ impl PagedBackingStore for Vmo {
         Ok(Arc::new(Vmo {
             size: AtomicUsize::new(len),
             pages: TicketLock::new(child_pages),
+            is_physical: false,
         }))
     }
 
@@ -145,7 +157,38 @@ impl Vmo {
         Arc::new(Self {
             size: AtomicUsize::new(size), 
             pages: TicketLock::new(pages),
+            is_physical: false
         })
+    }
+
+    pub fn new_phys(phys_addr: usize, size: usize) -> Arc<Self> {
+        let mut pages = BTreeMap::new();
+        let num_pages = size.div_ceil(NORMAL_PAGE_SIZE);
+        for i in 0..num_pages {
+            let offset = i * NORMAL_PAGE_SIZE;
+            pages.insert(offset, phys_addr + offset);
+        }
+
+        Arc::new(Self {
+            size: AtomicUsize::new(size), 
+            pages: TicketLock::new(pages),
+            is_physical: true
+        })
+    }
+}
+
+impl Drop for Vmo {
+    fn drop(&mut self) {
+        if self.is_physical {
+            return;
+        }
+
+        let pages = self.pages.lock();
+        for (&_offset, &pfn) in pages.iter() {
+            if pfn != 0 {
+                ALLOCATOR.free(pfn, BlockSize::Normal);
+            }
+        }
     }
 }
 

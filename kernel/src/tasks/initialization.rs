@@ -8,7 +8,7 @@ use crate::arch::{
 };
 
 use crate::core::asynchronous::executor_thread;
-use crate::drivers::logger::{LOGGER, LogBuffer, LogTarget};
+use crate::drivers::logger::ScreenWriter;
 use alloc::sync::Arc;
 use vespertine_abi::tag::{TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
 use vespertine_abi::{AccessRights, HandleGrant, HandleID, Invocation};
@@ -43,8 +43,6 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     spawn_kernel_thread(reaper_daemon as *const () as usize, 0, ThreadPriority::REAPER, KERNEL_PROCESS.clone());
 
-    let console_handle = kernel_walk("/System/Services/ConsoleWriter", HandleID(0)).expect("[FATAL] No ConsoleWriter found");
-
     // socket pair for keyboard
     let (kbd_source_handle, kbd_sink_handle) = init_ipc_pipeline();
     spawn_kernel_thread(kbd_processor_thread as *const () as usize, kbd_sink_handle.0, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
@@ -65,12 +63,15 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
 
     // userspace init proc
 
+    let screen_writer = Arc::new(ScreenWriter {});
+    let screen_handle = kernel_register_obj(screen_writer, AccessRights::WRITE);
+
     // init package 
     let exec_handle = kernel_walk("/Programs/hesper", HandleID(0)).expect("[FATAL] No program found");
     let root_handle = HandleID(0);
     let root_rights = AccessRights::all();
     let source = kbd_source_handle;
-    let sink = console_handle;
+    let sink = screen_handle;
     let extra_handles = [
         HandleGrant { id: pm_handle, rights: AccessRights::all(), tag: TAG_SYS_PROCMAN, },
         HandleGrant { id: sf_handle, rights: AccessRights::all(), tag: TAG_SYS_SOCKFAC, },
@@ -88,13 +89,6 @@ pub extern "C" fn initializer(_arg: usize) -> ! {
         .expect("[FATAL] Failed to spawn process");
 
     klogln!("[SUCCESS] Process spawn success. Handle: {}", child_handle_id);
-
-    let log_buffer = Arc::new(LogBuffer::new());
-    let logs_dir_handle = kernel_walk("/System/Logs", HandleID(0)).expect("[FATAL] Could not find Logs directory");
-    let log_handle = kernel_register_obj(log_buffer.clone(), AccessRights::READ);
-    mount_kernel_dir("kernel.log", log_handle, logs_dir_handle);
-
-    LOGGER.lock().target = LogTarget::Buffer(log_buffer);
 
     klogln!("[INFO] Logger switched to log file");
 

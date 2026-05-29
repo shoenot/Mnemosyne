@@ -15,8 +15,14 @@ pub fn read_line(buf: &mut [u8]) -> usize {
         );
         match sys_invoke(HandleID(2), &op) {
             Ok(n) if n > 0 => { 
-                total += n;
-                if buf[total-1] == b'\n' || total >= buf.len() { return total };
+                if buf[total] == b'\x08' {
+                    if total > 0 {
+                        total -= 1;
+                    }
+                } else {
+                    total += n;
+                    if buf[total-1] == b'\n' || total >= buf.len() { return total };
+                }
             },
             _ => return total,
         }

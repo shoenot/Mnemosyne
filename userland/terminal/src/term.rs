@@ -1,0 +1,213 @@
+use alloc::{format, vec::Vec};
+use vespertine_abi::HandleID;
+use vespertine_rt::syscall::sys_write_bytes;
+use vespertine_std::fb::Framebuffer;
+use vte::Perform;
+
+static FONT_DATA: &[u8] = include_bytes!("zap-ext-light16.psf");
+pub const PADDING_X: usize = 12;
+pub const PADDING_Y: usize = 12;
+
+#[derive(Clone, Copy)]
+pub struct Cell {
+    pub char: char,
+    pub fg: u32,
+    pub bg: u32,
+}
+
+pub struct TerminalGrid {
+    pub width_chars: usize,
+    pub height_chars: usize,
+    pub cursor_x: usize,
+    pub cursor_y: usize,
+    pub input_len: usize,
+
+    pub current_fg: u32,
+    pub current_bg: u32,
+
+    pub cells: Vec<Cell>,
+    pub fb: Framebuffer,
+    pub shell_source: HandleID,
+}
+
+impl Perform for TerminalGrid {
+    // called when a char is printed
+    fn print(&mut self, c: char) {
+        if self.cursor_x >= self.width_chars {
+            self.cursor_x = 0;
+            self.newline();
+        }
+
+        // save to virtual grid
+        let idx = self.cursor_y * self.width_chars + self.cursor_x;
+        self.cells[idx] = Cell { char: c, fg: self.current_fg, bg: self.current_bg };
+
+        // blit directly to fb
+        self.draw_cell(self.cursor_x, self.cursor_y);
+        self.cursor_x += 1;
+    }
+
+    // called when control chars are printed
+    fn execute(&mut self, byte: u8) {
+        match byte {
+            b'\n' => { self.newline(); self.cursor_x = 0; },
+            b'\r' => self.cursor_x = 0,
+            b'\x08' => { // backspace
+                if self.cursor_x > 0 {
+                    self.cursor_x -= 1;
+                    self.clear_cell(self.cursor_x, self.cursor_y);
+                }
+            },
+            _ => {}
+        }
+    }
+
+    fn csi_dispatch(
+        &mut self,
+        params: &vte::Params,
+        _intermediates: &[u8],
+        _ignore: bool,
+        action: char,
+    )
+    {
+        match action {
+            'm' => {
+                for param in params.iter() {
+                    match param {
+                        [0] => {
+                            self.current_fg = 0xe0ddd8;
+                            self.current_bg = 0x11080d;
+                        },
+                        [30..=37] => {
+                            self.current_fg = translate_ansi_color(param[0] - 30);
+                        },
+                        [40..=47] => {
+                            self.current_bg = translate_ansi_color(param[0] - 40);
+                        },
+                        _ => {}
+                    }
+                }
+            },
+            'J' => {
+                self.clear_screen();
+            },
+            'N' => {
+                if self.cursor_x > 0 {
+                    self.newline();
+                    self.cursor_x = 0;
+                }
+            },
+            'n' => {
+                for param in params.iter() {
+                    match param {
+                        [6] => {
+                            let reply = format!("\x1b[{};{}R", self.cursor_y + 1, self.cursor_x + 1);
+                            let _ = sys_write_bytes(self.shell_source, reply.as_bytes());
+                        },
+                        _ => {}
+                    }
+                }
+            },
+            _ => {},
+        }
+    }
+}
+
+impl TerminalGrid {
+    fn draw_cell(&mut self, col: usize, row: usize) {
+        let cell = self.cells[row * self.width_chars + col];
+        let glyph_size = 16;
+        // skip header with + 4
+        let glyph_offset = 4 + cell.char as usize * glyph_size;
+
+        let x_start = PADDING_X + col * 8;
+        let y_start = PADDING_Y + row * 16;
+
+        for y in 0..16 {
+            let font_byte = FONT_DATA[glyph_offset + y];
+            for x in 0..8 {
+                let bit_is_set = (font_byte & (0x80 >> x)) != 0;
+                let color = if bit_is_set { cell.fg } else { cell.bg };
+                self.fb.write_pixel(x_start + x, y_start + y, color);
+            }
+        }
+    }
+
+    fn clear_cell(&mut self, col: usize, row: usize) {
+        let idx = row * self.width_chars + col;
+        self.cells[idx] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
+
+        let x_start = PADDING_X + col * 8;
+        let y_start = PADDING_Y + row * 16;
+        for y in 0..16 {
+            for x in 0..8 {
+                self.fb.write_pixel(x_start + x, y_start + y, self.current_bg);
+            }
+        }
+    }
+
+    fn newline(&mut self) {
+        if self.cursor_y < self.height_chars - 1 {
+            self.cursor_y += 1;
+        } else {
+            self.scroll();
+        }   
+    }
+
+    fn scroll(&mut self) {
+        let row_cells = self.width_chars;
+        let cells_len = self.cells.len();
+        self.cells.copy_within(row_cells..cells_len, 0);
+
+        let last_row_start = (self.height_chars - 1) * self.width_chars;
+        for i in last_row_start..self.cells.len() {
+            self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
+        }
+
+        let info = self.fb.info();
+        let screen_words = info.pitch / 4;
+
+        let dst_start = PADDING_Y * screen_words;
+        let src_start = (PADDING_Y + 16) * screen_words;
+        let count = (self.height_chars - 1) * 16 * screen_words;
+
+        let pixels = self.fb.pixels_mut();
+        pixels.copy_within(src_start..(src_start + count), dst_start);
+
+        // fill bottom 16 scanlines with bg color
+        let last_row_y_start = (self.height_chars - 1) * 16;
+        let start_word = last_row_y_start * screen_words;
+        for i in start_word..pixels.len() {
+            pixels[i] = self.current_bg;
+        }
+    }
+
+    pub fn clear_screen(&mut self) {
+        let w = self.width_chars;
+        let h = self.height_chars;
+        for i in 0..self.cells.len() {
+            self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
+        }
+        let pixels = self.fb.pixels_mut();
+        for p in pixels.iter_mut() {
+            *p = self.current_bg;
+        }
+        self.cursor_x = 0;
+        self.cursor_y = 0;
+    }
+}
+
+fn translate_ansi_color(index: u16) -> u32 {
+    match index {
+        0 => 0x1a1a1a, // black
+        1 => 0xc85d5d, // red
+        2 => 0x5a7548, // green
+        3 => 0xf0ca93, // yellow
+        4 => 0x5276b5, // blue
+        5 => 0x7d4c68, // magenta
+        6 => 0xad687d, // cyan
+        7 => 0xe0ddd8, // white
+        _ => 0xe0ddd8,
+    }
+}
+

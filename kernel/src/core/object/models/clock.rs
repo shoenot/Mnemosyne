@@ -13,7 +13,9 @@ impl KernelObject for Clock {
 
     fn invoke(&self, invocation: Invocation, _calling_rights: crate::core::object::handle::AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::Clock(ClockOp::GetTimestamp) =>  { Ok(get_realtime() as usize) },
+            Invocation::Clock(ClockOp::GetTimestamp) =>  { 
+                Ok(get_realtime() as usize) 
+            },
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

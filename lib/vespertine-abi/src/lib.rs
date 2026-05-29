@@ -24,7 +24,7 @@ pub enum Invocation {
     MemPool(MemPoolOp),
     Clock(ClockOp),
     Socket(SocketOp),
-    Wait(Signal),
+    Wait(WaitOp),
 }
 
 impl Invocation {
@@ -121,4 +121,12 @@ impl ProcessInitPackage {
     pub fn ext(&self) -> &[HandleGrant] {
         unsafe { slice::from_raw_parts(self.extra_handles_ptr, self.extra_handles_len) }
     }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+pub struct WaitItem {
+    pub handle: HandleID,
+    pub signal: Signal,
+    pub pending: Signal,
 }

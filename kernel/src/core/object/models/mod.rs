@@ -7,6 +7,5 @@ pub mod process;
 pub mod procman;
 pub mod memman;
 pub mod mempool;
-pub mod console;
 pub mod thread;
-
+pub mod framebuffer;
