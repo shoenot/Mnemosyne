@@ -1,13 +1,12 @@
 #![allow(dead_code)]
 
-use core::ptr;
-
 use alloc::alloc::{
+    Layout,
     alloc,
     dealloc,
-    Layout,
 };
 use alloc::sync::Arc;
+use core::ptr;
 
 // TODO: Optimize VMM tlb shootdowns. make it loop and unmap all the pages first and *then* fire the
 // ipis.
@@ -17,7 +16,10 @@ use crate::arch::x86_64::interrupts::shootdown::shootdown;
 use crate::core::object::invoke::InvocationError;
 use crate::core::sync::TicketLock;
 use crate::memory::vmo::PagedBackingStore;
-use crate::memory::{PCAllocator, GLOBAL_PMM};
+use crate::memory::{
+    GLOBAL_PMM,
+    PCAllocator,
+};
 
 pub static VM_FLAG_WRITE: usize = 1 << 0;
 pub static VM_FLAG_EXEC: usize = 1 << 1;
@@ -101,16 +103,14 @@ unsafe impl Sync for VirtMemManager {}
 pub fn align_up(addr: usize) -> usize { (addr + 0xFFF) & !0xFFF }
 
 impl VirtMemManager {
-    pub fn new(allocator: &'static PCAllocator) -> Self { 
+    pub fn new(allocator: &'static PCAllocator) -> Self {
         let mut pager = Pager::new(allocator);
         pager.init_process_pager().expect("Failed to initialize process pager");
 
-        Self { head: None, pager: TicketLock::new(pager), allocator } 
+        Self { head: None, pager: TicketLock::new(pager), allocator }
     }
 
-    pub fn get_pml4_addr(&self) -> usize {
-        self.pager.lock().get_l4_addr() as usize
-    }
+    pub fn get_pml4_addr(&self) -> usize { self.pager.lock().get_l4_addr() as usize }
 
     // temp for now
     pub fn mmap(&mut self, size: usize, flags: usize) -> Option<usize> {
@@ -118,7 +118,10 @@ impl VirtMemManager {
         self.mmap_internal(size, flags, None, 0, node_ptr)
     }
 
-    pub fn mmap_internal(&mut self, mut size: usize, flags: usize, backing_vmo: Option<Arc<dyn PagedBackingStore>>, vmo_offset: usize, node_ptr: *mut VmaNode) -> Option<usize> {
+    pub fn mmap_internal(
+        &mut self, mut size: usize, flags: usize, backing_vmo: Option<Arc<dyn PagedBackingStore>>, vmo_offset: usize,
+        node_ptr: *mut VmaNode,
+    ) -> Option<usize> {
         let mask = if flags & VM_FLAG_HUGE != 0 { HUGE_PAGE_SIZE - 1 } else { NORMAL_PAGE_SIZE - 1 };
 
         size = (size + mask) & !mask;
@@ -173,11 +176,7 @@ impl VirtMemManager {
 
         if let Some(addr) = gap_start {
             unsafe {
-                ptr::write(node_ptr, VmaNode { 
-                    start: addr, size, flags, 
-                    prev: prev_ptr, next: current_ptr,
-                    backing_vmo, vmo_offset,
-                });
+                ptr::write(node_ptr, VmaNode { start: addr, size, flags, prev: prev_ptr, next: current_ptr, backing_vmo, vmo_offset });
 
                 if let Some(prev) = prev_ptr {
                     (*prev).next = Some(node_ptr);
@@ -191,7 +190,9 @@ impl VirtMemManager {
             }
             return Some(addr);
         }
-        unsafe { dealloc(node_ptr as *mut u8, Layout::new::<VmaNode>()); }
+        unsafe {
+            dealloc(node_ptr as *mut u8, Layout::new::<VmaNode>());
+        }
         None
     }
 
@@ -200,7 +201,9 @@ impl VirtMemManager {
         self.mmap_internal(size, flags, Some(backing_vmo), 0, node_ptr)
     }
 
-    pub fn mmap_vmo_at(&mut self, start_addr: usize, mut size: usize, flags: usize, backing_vmo: Arc<dyn PagedBackingStore>) -> Option<usize> {
+    pub fn mmap_vmo_at(
+        &mut self, start_addr: usize, mut size: usize, flags: usize, backing_vmo: Arc<dyn PagedBackingStore>,
+    ) -> Option<usize> {
         let mask = NORMAL_PAGE_SIZE - 1;
         size = (size + mask) & !mask;
 
@@ -219,24 +222,31 @@ impl VirtMemManager {
 
             // check for overlaps with prv mapping
             if let Some(prev) = prev_ptr {
-                    if (*prev).start + (*prev).size > start_addr { return None };
+                if (*prev).start + (*prev).size > start_addr {
+                    return None;
+                };
             }
 
             // check for overlaps with next mapping
             if let Some(next) = current_ptr {
-                if start_addr + size > (*next).start { return None };
+                if start_addr + size > (*next).start {
+                    return None;
+                };
             }
 
             let node_ptr = allocate_node();
-            ptr::write(node_ptr, VmaNode {
-                start: start_addr,
-                size,
-                flags,
-                prev: prev_ptr,
-                next: current_ptr,
-                backing_vmo: Some(backing_vmo),
-                vmo_offset: 0,
-            });
+            ptr::write(
+                node_ptr,
+                VmaNode {
+                    start: start_addr,
+                    size,
+                    flags,
+                    prev: prev_ptr,
+                    next: current_ptr,
+                    backing_vmo: Some(backing_vmo),
+                    vmo_offset: 0,
+                },
+            );
 
             if let Some(prev) = prev_ptr {
                 (*prev).next = Some(node_ptr);
@@ -324,7 +334,7 @@ impl VirtMemManager {
                 shootdown(batch_start, batch_size_bytes);
                 if target_vma.backing_vmo.is_none() {
                     for i in 0..batch_count {
-                        self.allocator.free(phys_batch[i],block_size);
+                        self.allocator.free(phys_batch[i], block_size);
                     }
                 }
             }
@@ -397,9 +407,7 @@ impl VirtMemManager {
             }
         }
 
-        let target_vma = target_vma_ptr
-            .map(|ptr| unsafe { &*ptr })
-            .ok_or(FaultError::InvalidAddress)?;  // if vma not found that means segfault
+        let target_vma = target_vma_ptr.map(|ptr| unsafe { &*ptr }).ok_or(FaultError::InvalidAddress)?; // if vma not found that means segfault
 
         let is_write = (error_code & (1 << 1)) != 0;
         let vma_allows_write = (target_vma.flags & VM_FLAG_WRITE) != 0;
@@ -418,7 +426,7 @@ impl VirtMemManager {
         let vmo_offset = offset_in_vma + target_vma.vmo_offset;
 
         let phys_frame = if let Some(ref obj) = target_vma.backing_vmo {
-            // if vmo already has the page then use it 
+            // if vmo already has the page then use it
             match obj.request_page(vmo_offset) {
                 Ok(addr) => addr,
                 Err(_) => return Err(FaultError::MappingFailed),
@@ -440,7 +448,7 @@ impl VirtMemManager {
     }
 
     pub fn teardown(&mut self) {
-        unsafe { 
+        unsafe {
             while let Some(node_ptr) = self.head {
                 let start = (*node_ptr).start;
                 let size = (*node_ptr).size;
@@ -483,7 +491,7 @@ impl VirtMemManager {
     pub fn get_total_allocated_size(&self) -> usize {
         let mut total = 0;
         let mut current_ptr = self.head;
-        unsafe { 
+        unsafe {
             while let Some(curr) = current_ptr {
                 total += (*curr).size;
                 current_ptr = (*curr).next;

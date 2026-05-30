@@ -1,5 +1,6 @@
 #![allow(dead_code)]
 
+use alloc::sync::Arc;
 use core::mem::size_of;
 use core::ptr::{
     null_mut,
@@ -10,8 +11,6 @@ use core::sync::atomic::{
     Ordering,
 };
 
-use alloc::sync::Arc;
-
 use crate::arch::get_core_data;
 use crate::arch::x86_64::cpu::fpu::*;
 use crate::arch::x86_64::interrupts::disable_interrupts;
@@ -19,18 +18,21 @@ use crate::core::sync::TicketLock;
 use crate::core::thread::idle::*;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::{
-    switch_threads_avx,
-    switch_threads_legacy,
     ThreadControlBlock,
     ThreadState,
+    switch_threads_avx,
+    switch_threads_legacy,
 };
 use crate::core::time::{
     get_time,
-    ns_to_ticks, update_hardware_timer,
+    ns_to_ticks,
+    update_hardware_timer,
 };
 use crate::memory::paging::load_cr3;
 use crate::{
-    impl_queue_methods, BOOTSTRAP_ALLOC, KERNEL_PROCESS
+    BOOTSTRAP_ALLOC,
+    KERNEL_PROCESS,
+    impl_queue_methods,
 };
 
 pub static GLOBAL_TID: AtomicUsize = AtomicUsize::new(0);
@@ -90,9 +92,7 @@ impl SchedulerState {
         }
     }
 
-    pub fn init_basic(&mut self, logical_id: usize) {
-        self.core_logical_id = logical_id;
-    }
+    pub fn init_basic(&mut self, logical_id: usize) { self.core_logical_id = logical_id; }
 
     pub fn init_threads(&mut self, logical_id: usize) {
         self.idle_thread = init_idle_thread(logical_id);
@@ -283,7 +283,9 @@ impl SchedulerState {
     }
 
     pub fn block(&mut self, thread: *mut ThreadControlBlock) {
-        unsafe { (*thread).state = ThreadState::Blocked; }
+        unsafe {
+            (*thread).state = ThreadState::Blocked;
+        }
         self.schedule();
     }
 

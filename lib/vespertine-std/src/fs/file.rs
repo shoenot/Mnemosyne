@@ -1,16 +1,14 @@
-use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation};
-use vespertine_rt::syscall::{SysError, sys_close, sys_invoke, sys_read, sys_write};
-use core::cell::Cell;
-use core::ops::Drop;
 use crate::io::{Read, Write};
 pub use crate::path::*;
-use crate::{Error, ErrorKind};
+use crate::Error;
+use core::cell::Cell;
+use core::ops::Drop;
+use vespertine_abi::{FileOp, HandleID, Invocation};
+use vespertine_rt::syscall::{sys_close, sys_invoke, sys_read, sys_write};
 
 extern crate alloc;
-use alloc::vec::Vec;
-use alloc::string::String;
 
-pub struct File { 
+pub struct File {
     pub handle: HandleID,
     cursor: Cell<usize>,
 }
@@ -18,15 +16,21 @@ pub struct File {
 impl File {
     pub fn open(path: &str) -> Result<Self, Error> {
         walk_path(path, HandleID(0))
-            .map(|handle| File { handle, cursor: Cell::new(0) })
+            .map(|handle| File {
+                handle,
+                cursor: Cell::new(0),
+            })
             .map_err(Error::from)
     }
 
     pub fn from(handle: HandleID) -> Self {
-        Self { handle, cursor: Cell::new(0) }
+        Self {
+            handle,
+            cursor: Cell::new(0),
+        }
     }
 
-    pub fn stat(&self) -> Result<usize, Error>{
+    pub fn stat(&self) -> Result<usize, Error> {
         let op = FileOp::Stat;
         sys_invoke(self.handle, &Invocation::File(op)).map_err(Error::from)
     }
@@ -43,7 +47,7 @@ impl Read for File {
             Ok(n) => {
                 self.cursor.set(offset + n);
                 Ok(n)
-            },
+            }
             Err(e) => Err(Error::from(e)),
         }
     }
@@ -56,7 +60,7 @@ impl Write for File {
             Ok(n) => {
                 self.cursor.set(offset + n);
                 Ok(n)
-            },
+            }
             Err(e) => Err(Error::from(e)),
         }
     }
@@ -67,6 +71,3 @@ impl Drop for File {
         let _ = sys_close(self.handle);
     }
 }
-
-
-

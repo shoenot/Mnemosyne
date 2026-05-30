@@ -1,5 +1,5 @@
-mod file;
 mod dir;
+mod file;
 
-pub use file::*;
 pub use dir::*;
+pub use file::*;

@@ -8,7 +8,10 @@ use super::pic8259;
 use crate::core::sync::KernelOnceCell;
 use crate::memory::HHDMOFFSET;
 use crate::util::bitwise::check_bit;
-use crate::util::{read_from_msr, write_to_msr};
+use crate::util::{
+    read_from_msr,
+    write_to_msr,
+};
 
 const SV_OFFSET: usize = 0xF0;
 const EOI_OFFSET: usize = 0xB0;
@@ -52,17 +55,9 @@ pub(crate) enum TimerMode {
     TscDeadline = 0x40000,
 }
 
-pub(in crate::arch::x86_64) fn get_apic_base() -> usize {
-    unsafe {
-        (read_from_msr(IA32_APIC_BASE as u32) & !0xFFF) as usize
-    }
-}
+pub(in crate::arch::x86_64) fn get_apic_base() -> usize { unsafe { (read_from_msr(IA32_APIC_BASE as u32) & !0xFFF) as usize } }
 
-pub(in crate::arch::x86_64) fn get_apic_flags() -> usize {
-    unsafe {
-        (read_from_msr(IA32_APIC_BASE as u32) & 0xFFF) as usize
-    }
-}
+pub(in crate::arch::x86_64) fn get_apic_flags() -> usize { unsafe { (read_from_msr(IA32_APIC_BASE as u32) & 0xFFF) as usize } }
 
 pub(in crate::arch::x86_64) fn send_apic_eoi() {
     unsafe {
@@ -143,7 +138,7 @@ impl ApicDriver for XApicDriver {
         let lower = target_id << 24;
         unsafe {
             self.write_reg(0x310, lower);
-            self.write_reg(0x300, vector | 0x4000 );
+            self.write_reg(0x300, vector | 0x4000);
         }
     }
 }
@@ -172,11 +167,7 @@ impl X2ApicDriver {
         }
     }
 
-    pub(crate) unsafe fn read_reg(&self, offset: usize) -> u32 {
-        unsafe {
-            read_from_msr((self.base_addr + (offset >> 4)) as u32) as u32
-        }
-    }
+    pub(crate) unsafe fn read_reg(&self, offset: usize) -> u32 { unsafe { read_from_msr((self.base_addr + (offset >> 4)) as u32) as u32 } }
 }
 
 impl ApicDriver for X2ApicDriver {

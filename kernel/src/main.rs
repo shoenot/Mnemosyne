@@ -3,26 +3,18 @@
 extern crate alloc;
 mod arch;
 mod boot;
-mod drivers;
 mod core;
+mod drivers;
 mod memory;
 mod panic;
+mod syscall;
 mod tasks;
 mod tests;
 mod util;
-mod syscall;
 
-use ::core::ptr::read_volatile;
-use ::core::sync::atomic::Ordering;
-
-use crate::core::asynchronous::Executor;
-use crate::core::cpu::init_smp;
-use crate::core::time;
-use crate::drivers::pci::{PCI_DEVICES, enumerate_pci_devices};
-use crate::drivers::virtio::blk::{VirtioBlockDevice, init_block_device, virtio_blk_poll_thread};
-use crate::drivers::virtio::mmio::init_virtio;
-use crate::tasks::vfs_init::BLOCK_DEVICE;
 use alloc::sync::Arc;
+
+use ::core::sync::atomic::Ordering;
 use arch::x86_64::hcf;
 use arch::{
     enable_interrupts,
@@ -33,23 +25,44 @@ pub use boot::*;
 use drivers::logger::LOGGER;
 use memory::paging::get_cr3;
 use memory::{
-    BlockSize,
     BOOTSTRAP_ALLOC,
+    BlockSize,
 };
-
-use crate::arch::x86_64::cpu::core::{init_timer_daemon, CPULocalData};
-use crate::core::object::handle::{AccessRights, HandleTable};
 use vespertine_abi::HandleID;
+
+use crate::arch::x86_64::cpu::core::{
+    CPULocalData,
+    init_timer_daemon,
+};
+use crate::core::cpu::init_smp;
+use crate::core::object::handle::{
+    AccessRights,
+    HandleTable,
+};
 use crate::core::object::models::directory::Directory;
-use crate::core::object::models::process::{Process, ProcessControlBlock};
+use crate::core::object::models::process::{
+    Process,
+    ProcessControlBlock,
+};
 use crate::core::object::vfs::ROOT_DIRECTORY;
 use crate::core::sync::KernelOnceCell;
 use crate::core::thread::dispatch::spawn_kernel_thread;
 use crate::core::thread::priority::ThreadPriority;
+use crate::core::time;
 use crate::core::time::datetime::epoch_to_datetime;
-use crate::drivers::keyboard::init_keyboard_irq;
-use crate::memory::{ALLOCATOR, GLOBAL_PMM, HHDMOFFSET};
 use crate::drivers::blockdev::AsyncBlockDevice;
+use crate::drivers::keyboard::init_keyboard_irq;
+use crate::drivers::pci::{
+    PCI_DEVICES,
+    enumerate_pci_devices,
+};
+use crate::drivers::virtio::blk::{
+    init_block_device,
+    virtio_blk_poll_thread,
+};
+use crate::drivers::virtio::mmio::init_virtio;
+use crate::memory::GLOBAL_PMM;
+use crate::tasks::vfs_init::BLOCK_DEVICE;
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 
@@ -107,14 +120,7 @@ pub extern "C" fn kmain() -> ! {
     let blk_dyn: Arc<dyn AsyncBlockDevice> = blk_arc.clone();
     BLOCK_DEVICE.get_or_init(|| blk_dyn);
 
-
-
-    spawn_kernel_thread(
-        virtio_blk_poll_thread as *const () as usize,
-        blk_ptr, 
-        ThreadPriority::HIGH, 
-        KERNEL_PROCESS.clone(),
-    );
+    spawn_kernel_thread(virtio_blk_poll_thread as *const () as usize, blk_ptr, ThreadPriority::HIGH, KERNEL_PROCESS.clone());
 
     time::init_realtime();
     klogln!("[SUCCESS] Initialized Real Time Clock.");

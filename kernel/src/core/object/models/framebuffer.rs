@@ -1,12 +1,20 @@
-use alloc::{slice, sync::Arc};
 use alloc::boxed::Box;
-use async_trait::async_trait;
-use vespertine_abi::{AccessRights, FileOp, Invocation};
+use alloc::slice;
+use alloc::sync::Arc;
 use core::cmp;
 
-use crate::{arch::x86_64::task::syscall::safe_copy_to, core::object::{invoke::InvocationError, models::vmo::VmoObject, obj::KernelObject}, drivers::video::FramebufferInfo};
+use async_trait::async_trait;
+use vespertine_abi::{
+    AccessRights,
+    FileOp,
+    Invocation,
+};
 
-
+use crate::arch::x86_64::task::syscall::safe_copy_to;
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::vmo::VmoObject;
+use crate::core::object::obj::KernelObject;
+use crate::drivers::video::FramebufferInfo;
 
 #[derive(Debug)]
 pub struct FramebufferDevice {
@@ -16,9 +24,7 @@ pub struct FramebufferDevice {
 
 #[async_trait]
 impl KernelObject for FramebufferDevice {
-    fn type_name(&self) -> &'static str {
-        "Framebuffer Device"
-    }
+    fn type_name(&self) -> &'static str { "Framebuffer Device" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
@@ -27,12 +33,8 @@ impl KernelObject for FramebufferDevice {
                     return Err(InvocationError::AccessDenied);
                 }
 
-                let info_bytes = unsafe {
-                    slice::from_raw_parts(
-                        &self.info as *const FramebufferInfo as *const u8, 
-                        size_of::<FramebufferInfo>()
-                    )
-                };
+                let info_bytes =
+                    unsafe { slice::from_raw_parts(&self.info as *const FramebufferInfo as *const u8, size_of::<FramebufferInfo>()) };
 
                 if offset >= info_bytes.len() {
                     return Ok(0);
@@ -47,12 +49,10 @@ impl KernelObject for FramebufferDevice {
                     }
                 }
                 Ok(read_len)
-            },
-            // forward vmo ops straight to the framebuffer vmo
-            Invocation::Vmo(op) => {
-                self.vmo.invoke(Invocation::Vmo(op), calling_rights).await
             }
-            _ => Err(InvocationError::UnsupportedOperation)
+            // forward vmo ops straight to the framebuffer vmo
+            Invocation::Vmo(op) => self.vmo.invoke(Invocation::Vmo(op), calling_rights).await,
+            _ => Err(InvocationError::UnsupportedOperation),
         }
     }
 }

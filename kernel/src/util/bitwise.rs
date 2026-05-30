@@ -48,7 +48,7 @@ macro_rules! define_bitflags {
                 $(#[$flag_meta])*
                 pub const $flag_name: Self = Self($value);
             )*
-            
+
             #[inline(always)]
             pub const fn new() -> Self {
                 Self(0)

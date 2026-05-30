@@ -1,12 +1,14 @@
-use core::ops::Add;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
 
-use alloc::{sync::Arc, vec::Vec};
-
-use crate::klogln;
-use crate::memory::calculate_order;
-
-use crate::{drivers::{blockdev::AsyncBlockDevice, virtio::blk::BlockTransferFuture}, memory::{ALLOCATOR, BlockSize, HHDMOFFSET}};
-
+use crate::drivers::blockdev::AsyncBlockDevice;
+use crate::drivers::virtio::blk::BlockTransferFuture;
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    HHDMOFFSET,
+    calculate_order,
+};
 
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,21 +23,21 @@ pub struct GptGuid {
 #[derive(Debug)]
 #[repr(C, packed)]
 pub struct GptHeader {
-    signature: u64,                 // "EFI PART"
-	revision: u32,
-	header_size: u32,
-	header_checksum: u32,
-	reserved_zero: u32,
-	current_lba: u64,
-	backup_lba: u64,
-	first_lba: u64,
-	last_lba: u64,
-	disk_guid: GptGuid,
-	entry_table_lba: u64,
-	num_entries: u32,
-	entry_size: u32,
-	table_checksum: u32,
-	padding: [u8; 420],
+    signature: u64, // "EFI PART"
+    revision: u32,
+    header_size: u32,
+    header_checksum: u32,
+    reserved_zero: u32,
+    current_lba: u64,
+    backup_lba: u64,
+    first_lba: u64,
+    last_lba: u64,
+    disk_guid: GptGuid,
+    entry_table_lba: u64,
+    num_entries: u32,
+    entry_size: u32,
+    table_checksum: u32,
+    padding: [u8; 420],
 }
 
 #[repr(C, packed)]
@@ -46,7 +48,7 @@ pub struct GptEntry {
     pub starting_lba: u64,
     pub ending_lba: u64,
     pub attrs: u64,
-    pub partition_name: [u16; 36],    // UTF-16LE
+    pub partition_name: [u16; 36], // UTF-16LE
 }
 
 #[derive(Debug)]
@@ -57,11 +59,7 @@ pub struct GptPartition {
 }
 
 impl AsyncBlockDevice for GptPartition {
-    fn read_sectors(&self, 
-        sector: u64, 
-        sectors_count: u32, 
-        buf_phys: u64) -> Result<BlockTransferFuture, ()>
-    {
+    fn read_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()> {
         if sector + sectors_count as u64 > self.total_sectors {
             return Err(());
         }
@@ -71,11 +69,7 @@ impl AsyncBlockDevice for GptPartition {
         self.raw_device.read_sectors(absolute_sector, sectors_count, buf_phys)
     }
 
-    fn write_sectors(&self,
-        sector: u64,
-        sectors_count: u32,
-        buf_phys: u64) -> Result<BlockTransferFuture, ()>
-    {
+    fn write_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()> {
         if sector + sectors_count as u64 > self.total_sectors {
             return Err(());
         }
@@ -95,7 +89,9 @@ impl GptTable {
         let mut partitions = Vec::new();
 
         let header_page_phys = ALLOCATOR.alloc(BlockSize::Normal) as u64;
-        if header_page_phys == 0 { return Err(()); }
+        if header_page_phys == 0 {
+            return Err(());
+        }
         let header_page_virt = header_page_phys + *HHDMOFFSET as u64;
 
         // fetch lba 1 (primary gpt header block)
@@ -113,12 +109,12 @@ impl GptTable {
         let entry_size = header.entry_size as usize;
 
         let total_table_bytes = num_entries * entry_size;
-        let table_sectors = (total_table_bytes + 511) / 512;  // round up to sector units
+        let table_sectors = (total_table_bytes + 511) / 512; // round up to sector units
 
         if num_entries > 128 || entry_size != 128 {
             ALLOCATOR.free(header_page_phys as usize, BlockSize::Normal);
             return Err(());
-        }       
+        }
 
         let table_bytes_needed = total_table_bytes + 4095;
         let table_order = calculate_order(table_bytes_needed);
@@ -128,7 +124,7 @@ impl GptTable {
             None => {
                 ALLOCATOR.free(header_page_phys as usize, BlockSize::Normal);
                 return Err(());
-            },
+            }
         } as u64;
         let table_buf_virt = table_buf_phys + *HHDMOFFSET as u64;
 

@@ -11,7 +11,6 @@ use core::alloc::GlobalAlloc;
 
 pub use bootalloc::*;
 use heap::*;
-use vespertine_common::slab::SlabAllocator;
 use paging::*;
 use pmm::*;
 pub use pmm::{
@@ -19,6 +18,7 @@ pub use pmm::{
     HUGE_PAGE_SIZE,
     NORMAL_PAGE_SIZE,
 };
+use vespertine_common::slab::SlabAllocator;
 use vmm::*;
 
 use crate::arch::{
@@ -33,8 +33,8 @@ use crate::core::sync::{
 };
 use crate::core::thread::get_current_process;
 use crate::{
-    klogln,
     HHDM_REQUEST,
+    klogln,
 };
 
 pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
@@ -47,7 +47,9 @@ unsafe impl GlobalAlloc for KernelAllocatorWrapper {
         let int_state = interrupts_enabled();
         disable_interrupts();
         let ptr = unsafe { self.0.alloc(layout) };
-        if int_state { enable_interrupts(); }
+        if int_state {
+            enable_interrupts();
+        }
         ptr
     }
 
@@ -55,7 +57,9 @@ unsafe impl GlobalAlloc for KernelAllocatorWrapper {
         let int_state = interrupts_enabled();
         disable_interrupts();
         unsafe { self.0.dealloc(ptr, layout) };
-        if int_state { enable_interrupts(); }
+        if int_state {
+            enable_interrupts();
+        }
     }
 }
 
@@ -66,7 +70,7 @@ pub static GLOBAL_PMM: TicketLock<Allocator> = TicketLock::new(Allocator::new())
 pub static ALLOCATOR: PCAllocator = PCAllocator {};
 pub static PAGER: TicketLock<Pager> = TicketLock::new(Pager::new(&ALLOCATOR));
 
-pub fn handle_page_fault(addr: usize, error_code: usize) -> Result<(), FaultError> { 
+pub fn handle_page_fault(addr: usize, error_code: usize) -> Result<(), FaultError> {
     if let Some(proc) = get_current_process() {
         proc.vmm.read().handle_page_fault(addr, error_code)
     } else {
@@ -93,9 +97,7 @@ impl PCAllocator {
         }
     }
 
-    pub fn alloc_order(&self, order: usize) -> Option<usize> {
-        GLOBAL_PMM.lock().alloc_order(order)
-    }
+    pub fn alloc_order(&self, order: usize) -> Option<usize> { GLOBAL_PMM.lock().alloc_order(order) }
 
     pub fn free(&self, addr: usize, size: BlockSize) {
         match size {
@@ -113,9 +115,7 @@ impl PCAllocator {
         }
     }
 
-    pub fn free_order(&self, addr: usize, order: usize) {
-        GLOBAL_PMM.lock().free_order(addr, order)
-    }
+    pub fn free_order(&self, addr: usize, order: usize) { GLOBAL_PMM.lock().free_order(addr, order) }
 }
 
 pub fn init() {
@@ -142,4 +142,3 @@ pub fn calculate_order(bytes: usize) -> usize {
     }
     order
 }
-

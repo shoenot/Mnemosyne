@@ -11,15 +11,18 @@ use crate::core::thread::dispatch::create_tcb;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::callout::timer_daemon;
 use crate::util::write_to_msr;
-use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
+use crate::{
+    BOOTSTRAP_ALLOC,
+    KERNEL_PROCESS,
+};
 
 const KERNEL_GS_BASE: u32 = 0xC0000101;
 
 #[repr(C)]
 pub struct CPULocalData {
     pub self_ptr: *mut CPULocalData,
-    pub saved_user_rsp: usize,  // offset 0x08
-    pub kernel_rsp: usize,      // offset 0x10
+    pub saved_user_rsp: usize, // offset 0x08
+    pub kernel_rsp: usize,     // offset 0x10
     pub logical_id: usize,
     pub lapic_id: usize,
     pub core_gdt: CPULocalGDT,
@@ -57,8 +60,7 @@ pub fn init_core_data(lapic_id: usize, logical_id: usize, apic_mode: ApicMode) -
 pub fn init_timer_daemon(data_ptr: *mut CPULocalData) {
     unsafe {
         let data = &mut *data_ptr;
-        data.timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, 
-            ThreadPriority::HIGH, KERNEL_PROCESS.clone()).unwrap();
+        data.timer_daemon_tcb = create_tcb(timer_daemon as *const () as usize, 0, ThreadPriority::HIGH, KERNEL_PROCESS.clone()).unwrap();
         let timer_daemon_tcb = data.timer_daemon_tcb;
         data.scheduler.push(timer_daemon_tcb);
     }

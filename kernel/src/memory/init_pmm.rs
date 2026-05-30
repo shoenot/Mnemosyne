@@ -2,12 +2,12 @@ use core::ops::Deref;
 
 use limine::memmap::*;
 
+use crate::MEMMAP_REQUEST;
 use crate::drivers::serial::{
     log_to_serial,
     log_u64_to_serial,
 };
 use crate::memory::HHDMOFFSET;
-use crate::MEMMAP_REQUEST;
 
 static PAGE_SIZE: usize = 4096;
 
@@ -31,9 +31,8 @@ impl BitmapPMM {
 
         let mut highest_addr: usize = 0;
         for entry in mem_map {
-            if entry.type_ == MEMMAP_USABLE ||
-               entry.type_ == MEMMAP_BOOTLOADER_RECLAIMABLE ||
-               entry.type_ == MEMMAP_EXECUTABLE_AND_MODULES {
+            if entry.type_ == MEMMAP_USABLE || entry.type_ == MEMMAP_BOOTLOADER_RECLAIMABLE || entry.type_ == MEMMAP_EXECUTABLE_AND_MODULES
+            {
                 let top = entry.base + entry.length;
                 if top as usize > highest_addr {
                     highest_addr = top as usize;

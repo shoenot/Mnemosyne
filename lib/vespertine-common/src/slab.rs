@@ -1,8 +1,5 @@
-use core::alloc::{
-    GlobalAlloc,
-    Layout,
-};
 use crate::lock::TicketLock;
+use core::alloc::{GlobalAlloc, Layout};
 use core::ptr::null_mut;
 
 pub trait PageProvider {
@@ -21,17 +18,27 @@ struct FreeBlock {
 
 pub struct SlabAllocator<P: PageProvider> {
     pub caches: [TicketLock<MemCache>; 10],
-    provider: P
+    provider: P,
 }
 
-fn calc_size(layout: &Layout) -> usize { layout.size().max(layout.align()).next_power_of_two() }
+fn calc_size(layout: &Layout) -> usize {
+    layout.size().max(layout.align()).next_power_of_two()
+}
 
 impl<P: PageProvider> SlabAllocator<P> {
     pub const fn new(provider: P) -> Self {
-        let mut caches = [const { TicketLock::new(MemCache { object_size: 0, freelist_head: None }) }; 10];
+        let mut caches = [const {
+            TicketLock::new(MemCache {
+                object_size: 0,
+                freelist_head: None,
+            })
+        }; 10];
         let mut i = 0;
         while i < 10 {
-            caches[i] = TicketLock::new(MemCache { object_size: CACHE_SIZES[i], freelist_head: None });
+            caches[i] = TicketLock::new(MemCache {
+                object_size: CACHE_SIZES[i],
+                freelist_head: None,
+            });
             i += 1;
         }
         SlabAllocator { caches, provider }
@@ -99,8 +106,11 @@ impl MemCache {
 
         for i in 1..num_objects {
             let current_ptr = (virt_page_start + (self.object_size * i)) as *mut FreeBlock;
-            let next_ptr =
-                if i == num_objects - 1 { null_mut() } else { (virt_page_start + ((i + 1) * self.object_size)) as *mut FreeBlock };
+            let next_ptr = if i == num_objects - 1 {
+                null_mut()
+            } else {
+                (virt_page_start + ((i + 1) * self.object_size)) as *mut FreeBlock
+            };
 
             unsafe {
                 (*current_ptr).next = next_ptr;

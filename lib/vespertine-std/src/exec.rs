@@ -1,11 +1,14 @@
-use vespertine_abi::{AccessRights, HandleGrant, HandleID, Invocation, ProcManOp, tag::TAG_SYS_PROCMAN};
+use vespertine_abi::{
+    AccessRights, HandleGrant, HandleID, Invocation, ProcManOp, tag::TAG_SYS_PROCMAN,
+};
 extern crate alloc;
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 use vespertine_rt::syscall::sys_invoke;
 
 use crate::{Error, ErrorKind, env, fs::Dir};
 
+#[allow(dead_code)]
 pub struct Process {
     handle: HandleID,
 }
@@ -22,9 +25,9 @@ pub struct Exec {
 
 impl Exec {
     pub fn new(name: &'static str) -> Self {
-        // common case with child inheriting root/source/sink from parent 
+        // common case with child inheriting root/source/sink from parent
         // but no extra handles and no rights
-        Self { 
+        Self {
             exec_name: name,
             args: Vec::new(),
             root: env::root(),
@@ -59,7 +62,7 @@ impl Exec {
         self.sink = handle;
         self
     }
-    
+
     pub fn grant(mut self, grant: HandleGrant) -> Self {
         self.extra_handles.push(grant);
         self
@@ -76,8 +79,10 @@ impl Exec {
     }
 
     pub fn spawn(self) -> Result<Process, Error> {
-        let pm = env::find_tag(TAG_SYS_PROCMAN)
-            .ok_or(Error { kind: ErrorKind::AccessDenied, message: "[ERROR] Process manager capability not found." })?;
+        let pm = env::find_tag(TAG_SYS_PROCMAN).ok_or(Error {
+            kind: ErrorKind::AccessDenied,
+            message: "[ERROR] Process manager capability not found.",
+        })?;
 
         let exec = Dir::from(env::root())
             .subdir("Programs")?
@@ -85,7 +90,7 @@ impl Exec {
 
         // null terminated args buffer
         let mut args_buf = Vec::new();
-        args_buf.extend_from_slice(self.exec_name.as_bytes());    // append program name as arg[0]
+        args_buf.extend_from_slice(self.exec_name.as_bytes()); // append program name as arg[0]
         args_buf.push(0);
         for arg in &self.args {
             args_buf.extend_from_slice(arg.as_bytes());
@@ -104,10 +109,10 @@ impl Exec {
             args_buffer_len: args_buf.len(),
         };
 
-        let handle = sys_invoke(pm.id, &Invocation::ProcessManager(op))
-            .map_err(Error::from)?;
+        let handle = sys_invoke(pm.id, &Invocation::ProcessManager(op)).map_err(Error::from)?;
 
-        Ok(Process { handle: HandleID(handle) })
+        Ok(Process {
+            handle: HandleID(handle),
+        })
     }
-
 }

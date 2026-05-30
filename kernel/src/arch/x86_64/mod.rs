@@ -12,10 +12,8 @@ use apic::ioapic::*;
 use apic::lapic::get_apic_base;
 
 use crate::core::sync::TicketLock;
+use crate::klogln;
 use crate::memory::PAGER;
-use crate::{
-    klogln,
-};
 
 pub static IO_APIC: TicketLock<IOApic> = TicketLock::new(IOApic { base_addr: 0, gsi_base: 0 });
 

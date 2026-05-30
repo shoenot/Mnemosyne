@@ -1,8 +1,22 @@
-use async_trait::async_trait;
-use vespertine_abi::{AccessRights, Invocation, ThreadOp};
 use alloc::boxed::Box;
 
-use crate::{arch::{get_core_data, x86_64::apic::lapic::ApicDriver}, core::{cpu::get_core_data_for, object::{invoke::InvocationError, obj::KernelObject}, thread::{ThreadControlBlock, ThreadState, dispatch::wake_thread, schedule::GRAVEYARD}}, terminate_thread};
+use async_trait::async_trait;
+use vespertine_abi::{
+    AccessRights,
+    Invocation,
+    ThreadOp,
+};
+
+use crate::arch::get_core_data;
+use crate::arch::x86_64::apic::lapic::ApicDriver;
+use crate::core::cpu::get_core_data_for;
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::obj::KernelObject;
+use crate::core::thread::schedule::GRAVEYARD;
+use crate::core::thread::{
+    ThreadControlBlock,
+    ThreadState,
+};
 
 #[derive(Debug)]
 pub struct Thread {
@@ -17,7 +31,9 @@ impl KernelObject for Thread {
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Thread(ThreadOp::Kill) => {
-                if !calling_rights.contains(AccessRights::WRITE) { return Err(InvocationError::AccessDenied) };
+                if !calling_rights.contains(AccessRights::WRITE) {
+                    return Err(InvocationError::AccessDenied);
+                };
                 unsafe {
                     (*self.tcb).state = ThreadState::Terminated;
                     GRAVEYARD.lock().push(self.tcb);
@@ -31,20 +47,18 @@ impl KernelObject for Thread {
                     }
                 }
                 Ok(0)
-            },
-            Invocation::Thread(ThreadOp::Join) => {
-                Err(InvocationError::UnsupportedOperation)
-            },
+            }
+            Invocation::Thread(ThreadOp::Join) => Err(InvocationError::UnsupportedOperation),
             Invocation::Thread(ThreadOp::GetID) => {
-                if !calling_rights.contains(AccessRights::READ) { return Err(InvocationError::AccessDenied) };
+                if !calling_rights.contains(AccessRights::READ) {
+                    return Err(InvocationError::AccessDenied);
+                };
                 let id = unsafe { (*self.tcb).thread_id };
                 Ok(id)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
 
-    fn type_name(&self) -> &'static str {
-        "Thread"
-    }
+    fn type_name(&self) -> &'static str { "Thread" }
 }

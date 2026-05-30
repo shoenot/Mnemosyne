@@ -1,21 +1,40 @@
+use alloc::boxed::Box;
+use alloc::sync::Arc;
 use core::cmp::min;
 use core::future::poll_fn;
-use core::sync::atomic::{AtomicBool, Ordering};
-use core::task::{Context, Poll, Waker};
-use alloc::sync::Arc;
+use core::sync::atomic::{
+    AtomicBool,
+    Ordering,
+};
+use core::task::{
+    Context,
+    Poll,
+    Waker,
+};
+
 use async_trait::async_trait;
-use crate::arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled};
-use crate::core::sync::{Mutex, Semaphore, TicketLock};
-use crate::core::object::obj::KernelObject;
+use vespertine_abi::op::{
+    FileOp,
+    SocketOp,
+};
+use vespertine_abi::{
+    AccessRights,
+    HandleID,
+    Invocation,
+    Signal,
+    WaitOp,
+};
+
+use crate::arch::x86_64::task::syscall::{
+    safe_copy_from,
+    safe_copy_to,
+};
 use crate::core::object::invoke::InvocationError;
-use crate::core::thread::ThreadState;
-use crate::core::thread::dispatch::wake_thread;
-use crate::core::thread::wait::{MultiWakeQueue, WaitQueue};
-use vespertine_abi::{HandleID, Invocation, Signal, WaitOp};
-use vespertine_abi::op::{FileOp, SocketOp};
-use vespertine_abi::AccessRights;
-use crate::arch::x86_64::task::syscall::{safe_copy_from, safe_copy_to};
-use alloc::boxed::Box;
+use crate::core::object::obj::KernelObject;
+use crate::core::sync::{
+    Mutex,
+    TicketLock,
+};
 
 const BUFFER_SIZE: usize = 4096;
 
@@ -27,33 +46,15 @@ pub struct RingBuffer {
 }
 
 impl RingBuffer {
-    pub const fn new() -> Self {
-        Self { data: [0; BUFFER_SIZE], head: 0, tail: 0 }
-    }
+    pub const fn new() -> Self { Self { data: [0; BUFFER_SIZE], head: 0, tail: 0 } }
 
-    pub fn is_empty(&self) -> bool {
-        self.head == self.tail
-    }
+    pub fn is_empty(&self) -> bool { self.head == self.tail }
 
-    pub fn is_full(&self) -> bool {
-        ((self.head + 1) % BUFFER_SIZE) == self.tail
-    }
+    pub fn is_full(&self) -> bool { ((self.head + 1) % BUFFER_SIZE) == self.tail }
 
-    pub fn len(&self) -> usize {
-        if self.head >= self.tail {
-            self.head - self.tail
-        } else {
-            BUFFER_SIZE - (self.tail - self.head)
-        }
-    }
+    pub fn len(&self) -> usize { if self.head >= self.tail { self.head - self.tail } else { BUFFER_SIZE - (self.tail - self.head) } }
 
-    pub fn available_space(&self) -> usize {
-        if self.is_full() {
-            0
-        } else {
-            BUFFER_SIZE - self.len() - 1
-        }
-    }
+    pub fn available_space(&self) -> usize { if self.is_full() { 0 } else { BUFFER_SIZE - self.len() - 1 } }
 
     pub fn push_slice(&mut self, src: &[u8]) -> usize {
         let n = min(src.len(), self.available_space());
@@ -102,9 +103,7 @@ pub struct SocketEndpoint {
 
 #[async_trait]
 impl KernelObject for SocketEndpoint {
-    fn type_name(&self) -> &'static str {
-        "Socket"
-    }
+    fn type_name(&self) -> &'static str { "Socket" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
@@ -112,35 +111,29 @@ impl KernelObject for SocketEndpoint {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
-                poll_fn(|cx| {
-                    self.read_async(buffer_ptr as *mut u8, len, cx)
-                }).await
-            },
+                poll_fn(|cx| self.read_async(buffer_ptr as *mut u8, len, cx)).await
+            }
             Invocation::File(FileOp::Write { buffer_ptr, len, .. }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
                 }
-                poll_fn(|cx| {
-                    self.write_async(buffer_ptr as *mut u8, len, cx)
-                }).await
-            },
+                poll_fn(|cx| self.write_async(buffer_ptr as *mut u8, len, cx)).await
+            }
             Invocation::Socket(SocketOp::SetNB { nb }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
                 }
                 self.is_nb.store(nb, Ordering::SeqCst);
                 Ok(0)
-            },
+            }
             Invocation::Wait(WaitOp::One(signal)) => {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
-                poll_fn(|cx| {
-                    self.wait_for_signals_async(signal, cx)
-                }).await
-            },
-            Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
-                // invoke through ProcessControlBlock::invoke, not here manually 
+                poll_fn(|cx| self.wait_for_signals_async(signal, cx)).await
+            }
+            Invocation::Wait(WaitOp::Many { items_ptr: _, count: _ }) => {
+                // invoke through ProcessControlBlock::invoke, not here manually
                 Err(InvocationError::UnsupportedOperation)
             }
             _ => Err(InvocationError::UnsupportedOperation),
@@ -153,7 +146,7 @@ impl Drop for SocketEndpoint {
         // mark the write bus as closed
         self.write_bus.is_closed.store(true, Ordering::SeqCst);
 
-        // wake up any reading task waiting on the write bus 
+        // wake up any reading task waiting on the write bus
         if let Some(waker) = self.write_bus.read_waker.lock().take() {
             waker.wake();
         }
@@ -170,17 +163,9 @@ impl SocketEndpoint {
         let bus1 = Arc::new(SocketBus::new());
         let bus2 = Arc::new(SocketBus::new());
 
-        let ep1 = Arc::new(SocketEndpoint {
-            read_bus: bus1.clone(),
-            write_bus: bus2.clone(),
-            is_nb: AtomicBool::new(false),
-        });
+        let ep1 = Arc::new(SocketEndpoint { read_bus: bus1.clone(), write_bus: bus2.clone(), is_nb: AtomicBool::new(false) });
 
-        let ep2 = Arc::new(SocketEndpoint {
-            read_bus: bus2,
-            write_bus: bus1,
-            is_nb: AtomicBool::new(false),
-        });
+        let ep2 = Arc::new(SocketEndpoint { read_bus: bus2, write_bus: bus1, is_nb: AtomicBool::new(false) });
 
         (ep1, ep2)
     }
@@ -219,41 +204,41 @@ impl SocketEndpoint {
     }
 
     fn write_async(&self, buffer_ptr: *const u8, len: usize, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
-            if self.write_bus.is_closed.load(Ordering::SeqCst) {
-                return Poll::Ready(Err(InvocationError::UnsupportedOperation)); // Broken pipe
-            }
-            if len == 0 {
-                return Poll::Ready(Ok(0));
-            }
-
-            let mut temp_buf = [0u8; 512];
-            let to_write = min(len, temp_buf.len());
-            if !safe_copy_from(temp_buf.as_mut_ptr(), buffer_ptr, to_write) {
-                return Poll::Ready(Err(InvocationError::InvalidPointer));
-            }
-
-            let mut bus = self.write_bus.buffer.lock();
-
-            if self.write_bus.is_closed.load(Ordering::SeqCst) {
-                return Poll::Ready(Err(InvocationError::UnsupportedOperation));
-            }
-
-            if bus.is_full() {
-                if self.is_nb.load(Ordering::SeqCst) {
-                    return Poll::Ready(Err(InvocationError::WouldBlock));
-                }
-                *self.write_bus.write_waker.lock() = Some(cx.waker().clone());
-                return Poll::Pending;
-            }
-
-            let count = bus.push_slice(&temp_buf[..to_write]);
-
-            if let Some(waker) = self.write_bus.read_waker.lock().take() {
-                waker.wake();
-            }
-
-            Poll::Ready(Ok(count))
+        if self.write_bus.is_closed.load(Ordering::SeqCst) {
+            return Poll::Ready(Err(InvocationError::UnsupportedOperation)); // Broken pipe
         }
+        if len == 0 {
+            return Poll::Ready(Ok(0));
+        }
+
+        let mut temp_buf = [0u8; 512];
+        let to_write = min(len, temp_buf.len());
+        if !safe_copy_from(temp_buf.as_mut_ptr(), buffer_ptr, to_write) {
+            return Poll::Ready(Err(InvocationError::InvalidPointer));
+        }
+
+        let mut bus = self.write_bus.buffer.lock();
+
+        if self.write_bus.is_closed.load(Ordering::SeqCst) {
+            return Poll::Ready(Err(InvocationError::UnsupportedOperation));
+        }
+
+        if bus.is_full() {
+            if self.is_nb.load(Ordering::SeqCst) {
+                return Poll::Ready(Err(InvocationError::WouldBlock));
+            }
+            *self.write_bus.write_waker.lock() = Some(cx.waker().clone());
+            return Poll::Pending;
+        }
+
+        let count = bus.push_slice(&temp_buf[..to_write]);
+
+        if let Some(waker) = self.write_bus.read_waker.lock().take() {
+            waker.wake();
+        }
+
+        Poll::Ready(Ok(count))
+    }
 
     fn wait_for_signals_async(&self, signal: Signal, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
         let mut should_block = false;
@@ -305,9 +290,7 @@ pub struct SocketFactory {}
 
 #[async_trait]
 impl KernelObject for SocketFactory {
-    fn type_name(&self) -> &'static str {
-        "SocketFactory"
-    }
+    fn type_name(&self) -> &'static str { "SocketFactory" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {

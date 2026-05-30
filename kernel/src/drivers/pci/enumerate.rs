@@ -1,6 +1,11 @@
 use alloc::vec::Vec;
 
-use crate::{drivers::pci::{PCI_DEVICES, PCIDevice, config::pci_config_read_32}, util::bitwise::check_bit};
+use crate::drivers::pci::config::pci_config_read_32;
+use crate::drivers::pci::{
+    PCI_DEVICES,
+    PCIDevice,
+};
+use crate::util::bitwise::check_bit;
 
 pub fn check_addr(bus: u8, slot: u8, func: u8, offset: u8) -> Option<PCIDevice> {
     let reg0 = pci_config_read_32(bus, slot, func, offset);
@@ -12,16 +17,7 @@ pub fn check_addr(bus: u8, slot: u8, func: u8, offset: u8) -> Option<PCIDevice> 
         let (class, subclass) = ((reg2 >> 24) as u8, ((reg2 >> 16) & 0xFF) as u8);
         let reg3 = pci_config_read_32(bus, slot, func, 0xC);
         let header_type = ((reg3 >> 16) & 0xFF) as u8;
-        let device = PCIDevice {
-            bus,
-            slot,
-            func,
-            vendor_id,
-            device_id,
-            class,
-            subclass,
-            header_type
-        };
+        let device = PCIDevice { bus, slot, func, vendor_id, device_id, class, subclass, header_type };
         Some(device)
     }
 }

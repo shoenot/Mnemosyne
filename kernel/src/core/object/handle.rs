@@ -1,8 +1,16 @@
-use alloc::{collections::btree_map::BTreeMap, sync::Arc};
+use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
 
-use crate::core::object::{invoke::InvocationError, obj::{HandleEntry, KernelObject}};
+pub use vespertine_abi::{
+    AccessRights,
+    HandleID,
+};
 
-pub use vespertine_abi::{AccessRights, HandleID};
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::obj::{
+    HandleEntry,
+    KernelObject,
+};
 
 #[derive(Debug)]
 pub struct HandleTable {
@@ -11,9 +19,7 @@ pub struct HandleTable {
 }
 
 impl HandleTable {
-    pub const fn new() -> Self {
-        Self { entries: BTreeMap::new(), next_id: 1 }
-    }
+    pub const fn new() -> Self { Self { entries: BTreeMap::new(), next_id: 1 } }
 
     pub fn insert(&mut self, obj: Arc<dyn KernelObject>, rights: AccessRights) -> HandleID {
         let id = HandleID(self.next_id);
@@ -29,9 +35,7 @@ impl HandleTable {
         }
     }
 
-    pub fn get(&self, id: &HandleID) -> Option<&HandleEntry> {
-        self.entries.get(id)
-    }
+    pub fn get(&self, id: &HandleID) -> Option<&HandleEntry> { self.entries.get(id) }
 
     pub fn close(&mut self, id: HandleID) -> Result<(), InvocationError> {
         match self.entries.remove(&id) {

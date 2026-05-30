@@ -1,9 +1,9 @@
 use core::ffi::{CStr, c_char};
 
+use alloc::string::String;
+use alloc::vec::Vec;
 use vespertine_abi::{HandleGrant, HandleID, ProcessInitPackage};
 use vespertine_rt::get_init_pkg;
-use alloc::vec::Vec;
-use alloc::string::String;
 
 extern crate alloc;
 
@@ -20,7 +20,7 @@ pub fn args() -> Vec<String> {
     let mut ret = Vec::with_capacity(p.argc);
 
     for i in 0..p.argc {
-        unsafe { 
+        unsafe {
             let arg_ptr = *p.argv.add(i);
             if !arg_ptr.is_null() {
                 let c_str = CStr::from_ptr(arg_ptr as *const c_char);
@@ -53,7 +53,6 @@ pub fn extra_handles() -> &'static [HandleGrant] {
 
 pub fn find_tag(tag: usize) -> Option<&'static HandleGrant> {
     let grants = extra_handles();
-    let ret = grants.iter()
-        .find(|g| g.tag == tag);
+    let ret = grants.iter().find(|g| g.tag == tag);
     ret
 }

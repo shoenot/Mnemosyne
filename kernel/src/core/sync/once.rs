@@ -48,18 +48,14 @@ impl<T> KernelOnceCell<T> {
     }
 
     pub fn get(&self) -> Option<&T> {
-        if self.state.load(Ordering::Acquire) == READY {
-            unsafe { Some((*self.value.get()).assume_init_ref()) }
-        } else {
-            None
-        }	
+        if self.state.load(Ordering::Acquire) == READY { unsafe { Some((*self.value.get()).assume_init_ref()) } } else { None }
     }
 }
 
 impl<T> Deref for KernelOnceCell<T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target { 
+    fn deref(&self) -> &Self::Target {
         assert_eq!(self.state.load(Ordering::Acquire), READY, "KernelOnceCell accessed before init");
-        unsafe { &(*self.value.get()).assume_init_ref() } 
+        unsafe { &(*self.value.get()).assume_init_ref() }
     }
 }

@@ -1,15 +1,43 @@
-use core::intrinsics::copy_nonoverlapping;
-
-use alloc::{sync::Arc, vec::Vec};
 use alloc::boxed::Box;
-use async_trait::async_trait;
-use vespertine_abi::protocol::{AbiDirEntry, DirEntryType, PacketFlags, PacketHeader, VESPER_MAGIC};
-use vespertine_abi::{AccessRights, DirectoryOp, FileOp, HandleID, Invocation};
+use alloc::sync::Arc;
+use core::ptr::copy_nonoverlapping;
 
+use async_trait::async_trait;
+use vespertine_abi::protocol::{
+    AbiDirEntry,
+    DirEntryType,
+    PacketFlags,
+    PacketHeader,
+    VESPER_MAGIC,
+};
+use vespertine_abi::{
+    AccessRights,
+    DirectoryOp,
+    FileOp,
+    Invocation,
+};
+
+use crate::arch::x86_64::task::syscall::safe_copy_to;
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::directory::Filename;
 use crate::core::object::models::vmo::VmoObject;
-use crate::drivers::blockdev::ext2::structs::DiskDirHeader;
-use crate::memory::vmo::{FileVmo, PagedBackingStore};
-use crate::{arch::x86_64::task::syscall::safe_copy_to, core::{object::{invoke::InvocationError, models::directory::{Directory, Filename}, obj::KernelObject}, sync::TicketLock, thread::get_current_process}, drivers::blockdev::{AsyncBlockDevice, ext2::{Ext2FileSystem, structs::DiskInode}, gpt::GptTable}, memory::{ALLOCATOR, BlockSize, HHDMOFFSET}};
+use crate::core::object::obj::KernelObject;
+use crate::core::sync::TicketLock;
+use crate::core::thread::get_current_process;
+use crate::drivers::blockdev::ext2::Ext2FileSystem;
+use crate::drivers::blockdev::ext2::structs::{
+    DiskDirHeader,
+    DiskInode,
+};
+use crate::memory::vmo::{
+    FileVmo,
+    PagedBackingStore,
+};
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    HHDMOFFSET,
+};
 
 #[derive(Debug)]
 pub struct Ext2File {
@@ -36,7 +64,7 @@ impl KernelObject for Ext2File {
 
                 *offset_guard += bytes_read;
                 Ok(bytes_read)
-            },
+            }
             Invocation::File(FileOp::Stat) => Ok(self.inode_data.size as usize),
             Invocation::File(FileOp::GetVmo) => {
                 let vmo_obj = Arc::new(VmoObject::new(self.file_vmo.clone()));
@@ -44,7 +72,7 @@ impl KernelObject for Ext2File {
                 let handle_id = current_proc.proc_handles.write().insert(vmo_obj, AccessRights::all());
 
                 Ok(handle_id.0 as usize)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
@@ -53,21 +81,24 @@ impl KernelObject for Ext2File {
 impl Ext2File {
     async fn read_bytes_async(&self, offset: usize, buffer_ptr: usize, req_len: usize) -> Result<usize, InvocationError> {
         let file_size = self.inode_data.size as usize;
-        if offset >= file_size { return Ok(0) };
+        if offset >= file_size {
+            return Ok(0);
+        };
 
         let bytes_available = file_size - offset;
         let read_len = core::cmp::min(bytes_available, req_len);
-        if read_len == 0 { return Ok(0); }
+        if read_len == 0 {
+            return Ok(0);
+        }
 
         let mut bytes_copied = 0;
 
         while bytes_copied < read_len {
             let current_file_offset = offset + bytes_copied;
-            let page_offset = (current_file_offset / 4096) * 4096; 
+            let page_offset = (current_file_offset / 4096) * 4096;
             let block_internal_offset = current_file_offset % 4096;
 
-            let phys_addr = self.file_vmo.request_page(page_offset)
-                .map_err(|_| InvocationError::InvalidPointer)?;
+            let phys_addr = self.file_vmo.request_page(page_offset).map_err(|_| InvocationError::InvalidPointer)?;
 
             let page_virt = phys_addr + *HHDMOFFSET;
             let chunk_size = core::cmp::min(4096 - block_internal_offset, read_len - bytes_copied);
@@ -102,58 +133,53 @@ impl KernelObject for Ext2Directory {
             Invocation::Directory(DirectoryOp::Lookup { name, name_len }) => {
                 let filename = Filename::new(name as *const u8, name_len)?;
 
-                let child_inode_id = self.fs.lookup_in_dir(&self.inode_data, &*filename.name)
+                let child_inode_id = self
+                    .fs
+                    .lookup_in_dir(&self.inode_data, &*filename.name)
                     .await
                     .map_err(|_| InvocationError::PathNotFound)?
                     .ok_or(InvocationError::PathNotFound)?;
 
-                let child_inode_data = self.fs.read_inode(child_inode_id)
-                    .await
-                    .map_err(|_| InvocationError::PathNotFound)?;
+                let child_inode_data = self.fs.read_inode(child_inode_id).await.map_err(|_| InvocationError::PathNotFound)?;
 
                 let is_directory = (child_inode_data.mode & 0xF000) == 0x4000;
 
                 let target_object: Arc<dyn KernelObject> = if is_directory {
-                    Arc::new(Ext2Directory {
-                        fs: Arc::clone(&self.fs),
-                        inode_num: child_inode_id,
-                        inode_data: child_inode_data,
-                    })
+                    Arc::new(Ext2Directory { fs: Arc::clone(&self.fs), inode_num: child_inode_id, inode_data: child_inode_data })
                 } else {
-                    let file_vmo = FileVmo::new(
-                        Arc::clone(&self.fs),
-                        child_inode_id, child_inode_data.clone(), child_inode_data.size as usize
-                    );
+                    let file_vmo =
+                        FileVmo::new(Arc::clone(&self.fs), child_inode_id, child_inode_data.clone(), child_inode_data.size as usize);
                     Arc::new(Ext2File {
                         fs: Arc::clone(&self.fs),
                         inode_num: child_inode_id,
                         inode_data: child_inode_data,
                         file_vmo,
                         offset: TicketLock::new(0),
-                    })  
+                    })
                 };
 
                 let rights = AccessRights(calling_rights.0 & (AccessRights::READ | AccessRights::WRITE | AccessRights::EXECUTE).0);
 
-                let handle_id = get_current_process()
-                    .ok_or(InvocationError::InvalidHandle)?
-                    .proc_handles
-                    .write()
-                    .insert(target_object, rights);
+                let handle_id =
+                    get_current_process().ok_or(InvocationError::InvalidHandle)?.proc_handles.write().insert(target_object, rights);
 
                 Ok(handle_id.0)
-            },
+            }
             Invocation::Directory(DirectoryOp::List { offset: _, sink }) => {
                 let mut entries = alloc::vec::Vec::new();
 
                 let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-                if page_phys == 0 { return Err(InvocationError::OutOfMemory); }
+                if page_phys == 0 {
+                    return Err(InvocationError::OutOfMemory);
+                }
                 let page_virt = page_phys + *HHDMOFFSET;
 
                 // 1. Read all directory entries from Ext2 blocks
                 for direct_idx in 0..12 {
                     let block_id = unsafe { self.inode_data.data.blocks.direct[direct_idx] };
-                    if block_id == 0 { continue };
+                    if block_id == 0 {
+                        continue;
+                    };
 
                     if self.fs.read_block(block_id, page_phys as u64).await.is_err() {
                         ALLOCATOR.free(page_phys, BlockSize::Normal);
@@ -168,8 +194,8 @@ impl KernelObject for Ext2Directory {
                             let rec_len = (*entry_ptr).record_length as usize;
                             let name_len = (*entry_ptr).name_length as usize;
 
-                            if rec_len == 0 { 
-                                break; 
+                            if rec_len == 0 {
+                                break;
                             }
 
                             if inode_id != 0 && name_len > 0 && offset + 8 + name_len <= self.fs.block_size as usize {
@@ -217,7 +243,7 @@ impl KernelObject for Ext2Directory {
                         packet_flags: flags,
                         packet_type: 1,
                         payload_len: core::mem::size_of::<AbiDirEntry>() as u32,
-                        reserved: 0
+                        reserved: 0,
                     };
 
                     let mut buffer = [0u8; core::mem::size_of::<PacketHeader>() + core::mem::size_of::<AbiDirEntry>()];
@@ -235,9 +261,8 @@ impl KernelObject for Ext2Directory {
                 }
 
                 Ok(0)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }
 }
-

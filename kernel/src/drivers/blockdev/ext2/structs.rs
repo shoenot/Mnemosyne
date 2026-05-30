@@ -13,13 +13,11 @@ pub struct DiskBlockPointers {
 #[derive(Clone, Copy)]
 pub union FileData {
     pub blocks: DiskBlockPointers,
-    pub symlink_embedded: [u8; 60]
+    pub symlink_embedded: [u8; 60],
 }
 
 impl Debug for FileData {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "File Data Union")
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { write!(f, "File Data Union") }
 }
 
 #[repr(C, packed)]
@@ -77,7 +75,7 @@ pub struct DiskSuperblock {
     //-- Other options --
     pub default_mount_options: u32,
     pub first_meta_bg: u32,
-    pub unused: [u8; 760], 
+    pub unused: [u8; 760],
 }
 
 #[repr(C, packed)]

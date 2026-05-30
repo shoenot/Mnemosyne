@@ -1,21 +1,24 @@
 mod scancodes;
-use scancodes::*;
-
 use core::sync::atomic::{
     AtomicBool,
     AtomicUsize,
     Ordering,
 };
 
+use scancodes::*;
+use vespertine_abi::op::FileOp;
+use vespertine_abi::{
+    HandleID,
+    Invocation,
+};
+
+use crate::arch::x86_64::IO_APIC;
 use crate::arch::x86_64::io::{
     inb,
     outb,
 };
-use crate::arch::x86_64::IO_APIC;
 use crate::core::acpi;
 use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
-use vespertine_abi::{HandleID, Invocation, op::FileOp};
-use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::Semaphore;
 use crate::util::bitwise::{
     set_bit,
@@ -118,10 +121,14 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
         }
 
         if !is_release {
-            let mut c = { 
-                if shift_held { KBD_US_SHIFT[key] } 
-                else if is_extended { KBD_US_EXTENDED[key] }
-                else { KBD_US_BASE[key] }
+            let mut c = {
+                if shift_held {
+                    KBD_US_SHIFT[key]
+                } else if is_extended {
+                    KBD_US_EXTENDED[key]
+                } else {
+                    KBD_US_BASE[key]
+                }
             };
 
             if caps_lock && c.is_ascii_alphabetic() {
@@ -136,11 +143,7 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
                 let mut byte_buffer = [0u8; 4];
                 let byte_len = c.encode_utf8(&mut byte_buffer).len();
 
-                let write_op = Invocation::File(FileOp::Write { 
-                    offset: 0,
-                    buffer_ptr: byte_buffer.as_mut_ptr() as usize,
-                    len: byte_len,
-                });
+                let write_op = Invocation::File(FileOp::Write { offset: 0, buffer_ptr: byte_buffer.as_mut_ptr() as usize, len: byte_len });
                 let _ = handle_sys_invoke(chan_handle, write_op);
             }
         }

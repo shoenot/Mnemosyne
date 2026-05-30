@@ -1,3 +1,3 @@
 #![no_std]
-pub mod slab;
 pub mod lock;
+pub mod slab;

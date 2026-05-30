@@ -1,7 +1,6 @@
 use crate::{HandleID, define_bitflags};
 
-
-pub static VESPER_MAGIC: u32 = 0xc001ca75;  // cool cats
+pub static VESPER_MAGIC: u32 = 0xc001ca75; // cool cats
 
 #[repr(C, align(8))]
 pub struct PacketHeader {
@@ -10,7 +9,7 @@ pub struct PacketHeader {
     pub packet_flags: PacketFlags,
     pub packet_type: u32,
     pub payload_len: u32,
-    pub reserved: u32,  // padding to make header 24 bytes
+    pub reserved: u32, // padding to make header 24 bytes
 }
 
 #[repr(C)]
@@ -59,5 +58,5 @@ pub struct MemoryRequest {
 
 #[repr(C)]
 pub struct ResourceResponse {
-    pub status: u8
+    pub status: u8,
 }

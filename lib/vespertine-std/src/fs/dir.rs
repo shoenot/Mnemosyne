@@ -1,8 +1,10 @@
 use core::fmt::Display;
 use core::ptr::copy_nonoverlapping;
 
-use vespertine_abi::protocol::{AbiDirEntry, DirEntryType, PacketFlags, PacketType, VESPER_MAGIC};
-use vespertine_abi::{DirectoryOp, FileOp, HandleID, Invocation, protocol::PacketHeader, tag::TAG_SYS_SOCKFAC};
+use vespertine_abi::protocol::{AbiDirEntry, PacketFlags, VESPER_MAGIC};
+use vespertine_abi::{
+    DirectoryOp, HandleID, Invocation, protocol::PacketHeader, tag::TAG_SYS_SOCKFAC,
+};
 use vespertine_rt::syscall::{sys_close, sys_create_socket, sys_invoke, sys_read};
 
 use crate::{Error, ErrorKind, env::find_tag, fs::walk_path};
@@ -10,7 +12,6 @@ use crate::{Error, ErrorKind, env::find_tag, fs::walk_path};
 extern crate alloc;
 
 use alloc::string::String;
-use alloc::vec::Vec;
 
 pub struct Dir(HandleID);
 
@@ -61,7 +62,9 @@ impl Iterator for ReadDir {
     type Item = DirEntry;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.finished { return None };
+        if self.finished {
+            return None;
+        };
 
         let remaining = self.limit - self.cursor;
         // ensure buffer holds at least one complete entry
@@ -79,7 +82,7 @@ impl Iterator for ReadDir {
             match sys_read(self.read_handle, read_ptr, to_read, 0) {
                 Ok(n) if n > 0 => {
                     self.limit += n;
-                },
+                }
                 _ => {
                     // eof or read error
                     if self.limit - self.cursor < 280 {
@@ -90,12 +93,12 @@ impl Iterator for ReadDir {
             }
         }
 
-        let mut header = PacketHeader { 
-            magic: 0, 
-            version: 0, 
+        let mut header = PacketHeader {
+            magic: 0,
+            version: 0,
             packet_flags: PacketFlags::new(),
-            packet_type: 0, 
-            payload_len: 0, 
+            packet_type: 0,
+            payload_len: 0,
             reserved: 0,
         };
 
@@ -104,27 +107,31 @@ impl Iterator for ReadDir {
 
         unsafe {
             copy_nonoverlapping(
-                self.buffer.as_ptr().add(self.cursor), 
-                &mut header as *mut _ as *mut u8, 
-                header_len
+                self.buffer.as_ptr().add(self.cursor),
+                &mut header as *mut _ as *mut u8,
+                header_len,
             );
         }
         self.cursor += header_len;
 
-        // verify magic number 
+        // verify magic number
         if header.magic != VESPER_MAGIC {
             self.finished = true;
             return None;
         }
 
         // read payload
-        let mut entry = AbiDirEntry { entry_type: 0, name_len: 0, name: [0u8; 254], };
+        let mut entry = AbiDirEntry {
+            entry_type: 0,
+            name_len: 0,
+            name: [0u8; 254],
+        };
         let entry_len = size_of::<AbiDirEntry>();
         unsafe {
             copy_nonoverlapping(
-                self.buffer.as_ptr().add(self.cursor), 
-                &mut entry as *mut _ as *mut u8, 
-                entry_len
+                self.buffer.as_ptr().add(self.cursor),
+                &mut entry as *mut _ as *mut u8,
+                entry_len,
             );
         }
         self.cursor += entry_len;
@@ -134,14 +141,12 @@ impl Iterator for ReadDir {
         }
 
         let name_bytes = &entry.name[..entry.name_len as usize];
-        let name = str::from_utf8(name_bytes)
-            .unwrap_or("Invalid UTF-8")
-            .into();
+        let name = str::from_utf8(name_bytes).unwrap_or("Invalid UTF-8").into();
 
         let kind = match entry.entry_type {
             1 => EntryKind::Directory,
             2 => EntryKind::File,
-            _ => EntryKind::Object
+            _ => EntryKind::Object,
         };
 
         Some(DirEntry { name, kind })
@@ -156,9 +161,7 @@ impl Drop for ReadDir {
 
 impl Dir {
     pub fn open(path: &str) -> Result<Self, Error> {
-        walk_path(path, HandleID(0))
-            .map(Dir)
-            .map_err(Error::from)
+        walk_path(path, HandleID(0)).map(Dir).map_err(Error::from)
     }
 
     pub fn from(handle: HandleID) -> Self {
@@ -166,16 +169,21 @@ impl Dir {
     }
 
     pub fn list(&self) -> Result<ReadDir, Error> {
-        let sf = find_tag(TAG_SYS_SOCKFAC)
-            .ok_or(Error { kind: ErrorKind::NotFound, message: "Socket factory not found" })?;
+        let sf = find_tag(TAG_SYS_SOCKFAC).ok_or(Error {
+            kind: ErrorKind::NotFound,
+            message: "Socket factory not found",
+        })?;
         let (read_end, write_end) = sys_create_socket(sf.id)?;
 
-        let op = DirectoryOp::List { offset: 0, sink: write_end };
+        let op = DirectoryOp::List {
+            offset: 0,
+            sink: write_end,
+        };
         sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
         let _ = sys_close(write_end);
 
-        Ok(ReadDir { 
-            read_handle: read_end, 
+        Ok(ReadDir {
+            read_handle: read_end,
             finished: false,
             buffer: [0u8; 4096],
             cursor: 0,
@@ -184,13 +192,19 @@ impl Dir {
     }
 
     pub fn subdir(&self, name: &'static str) -> Result<Dir, Error> {
-        let op = DirectoryOp::Lookup { name: name.as_ptr() as usize, name_len: name.len() };
+        let op = DirectoryOp::Lookup {
+            name: name.as_ptr() as usize,
+            name_len: name.len(),
+        };
         let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
         Ok(Dir::from(HandleID(handle)))
     }
 
     pub fn lookup(&self, name: &'static str) -> Result<HandleID, Error> {
-        let op = DirectoryOp::Lookup { name: name.as_ptr() as usize, name_len: name.len() };
+        let op = DirectoryOp::Lookup {
+            name: name.as_ptr() as usize,
+            name_len: name.len(),
+        };
         let handle = sys_invoke(self.0, &Invocation::Directory(op)).map_err(Error::from)?;
         Ok(HandleID(handle))
     }

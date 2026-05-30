@@ -1,18 +1,8 @@
 use core::cell::UnsafeCell;
 use core::hint::spin_loop;
-use core::ops::{
-    Deref,
-    DerefMut,
-};
-use core::sync::atomic::Ordering::{
-    Acquire,
-    Relaxed,
-    Release,
-};
-use core::sync::atomic::{
-    AtomicBool,
-    AtomicUsize,
-};
+use core::ops::{Deref, DerefMut};
+use core::sync::atomic::Ordering::{Acquire, Relaxed, Release};
+use core::sync::atomic::{AtomicBool, AtomicUsize};
 
 pub trait RawLock {
     fn lock(&self);
@@ -28,7 +18,11 @@ pub struct RawSpinLock {
 }
 
 impl RawSpinLock {
-    pub const fn new() -> Self { Self { locked: AtomicBool::new(false) } }
+    pub const fn new() -> Self {
+        Self {
+            locked: AtomicBool::new(false),
+        }
+    }
 }
 
 impl RawLock for RawSpinLock {
@@ -44,9 +38,13 @@ impl RawLock for RawSpinLock {
         }
     }
 
-    fn unlock(&self) { self.locked.store(false, Release) }
+    fn unlock(&self) {
+        self.locked.store(false, Release)
+    }
 
-    unsafe fn force_unlock(&self) { self.locked.store(false, Release); }
+    unsafe fn force_unlock(&self) {
+        self.locked.store(false, Release);
+    }
 }
 
 // Raw TicketLock
@@ -58,7 +56,12 @@ pub struct RawTicketLock {
 }
 
 impl RawTicketLock {
-    pub const fn new() -> Self { Self { ticket: AtomicUsize::new(0), serving: AtomicUsize::new(0) } }
+    pub const fn new() -> Self {
+        Self {
+            ticket: AtomicUsize::new(0),
+            serving: AtomicUsize::new(0),
+        }
+    }
 }
 
 impl RawLock for RawTicketLock {
@@ -75,7 +78,9 @@ impl RawLock for RawTicketLock {
         self.serving.store(successor, Release);
     }
 
-    unsafe fn force_unlock(&self) { self.serving.store(self.ticket.load(Relaxed), Release); }
+    unsafe fn force_unlock(&self) {
+        self.serving.store(self.ticket.load(Relaxed), Release);
+    }
 }
 
 unsafe impl Send for RawTicketLock {}
@@ -118,11 +123,15 @@ unsafe impl<R: RawLock, T> Sync for LockGuard<'_, R, T> where T: Sync {}
 
 impl<'a, L: RawLock, T> Deref for LockGuard<'_, L, T> {
     type Target = T;
-    fn deref(&self) -> &T { unsafe { &*self.lock.data.get() } }
+    fn deref(&self) -> &T {
+        unsafe { &*self.lock.data.get() }
+    }
 }
 
 impl<'a, R: RawLock, T> DerefMut for LockGuard<'_, R, T> {
-    fn deref_mut(&mut self) -> &mut T { unsafe { &mut *self.lock.data.get() } }
+    fn deref_mut(&mut self) -> &mut T {
+        unsafe { &mut *self.lock.data.get() }
+    }
 }
 
 impl<'a, R: RawLock, T> Drop for LockGuard<'_, R, T> {
@@ -137,9 +146,19 @@ pub type SpinLock<T> = Lock<RawSpinLock, T>;
 pub type TicketLock<T> = Lock<RawTicketLock, T>;
 
 impl<T> SpinLock<T> {
-    pub const fn new(val: T) -> Self { Self { raw: RawSpinLock::new(), data: UnsafeCell::new(val) } }
+    pub const fn new(val: T) -> Self {
+        Self {
+            raw: RawSpinLock::new(),
+            data: UnsafeCell::new(val),
+        }
+    }
 }
 
 impl<T> TicketLock<T> {
-    pub const fn new(val: T) -> Self { Self { raw: RawTicketLock::new(), data: UnsafeCell::new(val) } }
+    pub const fn new(val: T) -> Self {
+        Self {
+            raw: RawTicketLock::new(),
+            data: UnsafeCell::new(val),
+        }
+    }
 }

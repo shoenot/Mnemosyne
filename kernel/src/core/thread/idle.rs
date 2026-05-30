@@ -9,10 +9,13 @@ use crate::arch::x86_64::cpu::gdt::{
 };
 use crate::arch::x86_64::interrupts::enable_interrupts;
 use crate::arch::x86_64::task::context::*;
+use crate::core::thread::ThreadControlBlock;
 use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::schedule::RFLAGS_IF;
-use crate::core::thread::ThreadControlBlock;
-use crate::{BOOTSTRAP_ALLOC, KERNEL_PROCESS};
+use crate::{
+    BOOTSTRAP_ALLOC,
+    KERNEL_PROCESS,
+};
 
 fn idle_loop() -> ! {
     unsafe {
@@ -66,8 +69,7 @@ pub fn init_idle_thread(core_logical_id: usize) -> *mut ThreadControlBlock {
 
     // init TCB
     unsafe {
-        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, 
-            core_logical_id, ThreadPriority::IDLE, KERNEL_PROCESS.clone());
+        (*tcb_ptr).init(switch_addr, stack_base, stack_size, fpu_ptr, core_logical_id, ThreadPriority::IDLE, KERNEL_PROCESS.clone());
         (*tcb_ptr).priority = ThreadPriority::IDLE;
     }
 

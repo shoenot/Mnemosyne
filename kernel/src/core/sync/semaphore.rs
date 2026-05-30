@@ -11,9 +11,9 @@ use crate::arch::{
     interrupts_enabled,
 };
 use crate::core::sync::TicketLock;
+use crate::core::thread::ThreadState;
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
-use crate::core::thread::ThreadState;
 
 pub struct Semaphore {
     counter: AtomicIsize,
@@ -21,9 +21,7 @@ pub struct Semaphore {
 }
 
 impl Debug for Semaphore {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "Semaphore counter: {:?}", self.counter)
-    }
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result { write!(f, "Semaphore counter: {:?}", self.counter) }
 }
 
 unsafe impl Sync for Semaphore {}
@@ -53,7 +51,9 @@ impl Semaphore {
                 let current = self.counter.load(Ordering::Acquire);
                 if current > 0 {
                     drop(wq);
-                    if int_state { enable_interrupts(); }
+                    if int_state {
+                        enable_interrupts();
+                    }
                     counter = current;
                     continue;
                 }
@@ -69,7 +69,9 @@ impl Semaphore {
                 sched.schedule();
 
                 // continue here when unlocked
-                if int_state { enable_interrupts(); }
+                if int_state {
+                    enable_interrupts();
+                }
                 counter = self.counter.load(Ordering::Relaxed);
             }
         }

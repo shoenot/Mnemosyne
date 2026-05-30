@@ -1,7 +1,7 @@
 use crate::{Error, ErrorKind};
 extern crate alloc;
-use alloc::vec::Vec;
 use alloc::string::String;
+use alloc::vec::Vec;
 
 pub trait Read {
     fn read(&self, buf: &mut [u8]) -> Result<usize, Error>;
@@ -24,7 +24,7 @@ pub trait Read {
         String::from_utf8(bytes).map_err(|_| Error {
             kind: ErrorKind::InvalidArgument,
             message: "Stream contains invalid UTF-8",
-        })      
+        })
     }
 }
 
@@ -35,7 +35,12 @@ pub trait Write {
         let mut total = 0;
         while total < buf.len() {
             match self.write(&buf[total..]) {
-                Ok(0) => return Err(Error { kind: ErrorKind::OutOfMemory, message: "Write failed" }),
+                Ok(0) => {
+                    return Err(Error {
+                        kind: ErrorKind::OutOfMemory,
+                        message: "Write failed",
+                    });
+                }
                 Ok(n) => total += n,
                 Err(e) => return Err(e),
             }

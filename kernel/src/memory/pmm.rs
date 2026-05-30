@@ -1,18 +1,23 @@
-use core::{slice::from_raw_parts_mut, sync::atomic::{AtomicU16, AtomicU32, Ordering}};
+use core::slice::from_raw_parts_mut;
+use core::sync::atomic::{
+    AtomicU16,
+    AtomicU32,
+    Ordering,
+};
 
-use crate::memory::init_pmm::*;
 pub use crate::memory::HHDMOFFSET;
+use crate::memory::init_pmm::*;
 
 static ORDER_MAX: usize = 11;
 pub static HUGE_PAGE_SIZE: usize = 0x20_0000;
 pub static NORMAL_PAGE_SIZE: usize = 0x1000;
 
-pub const PF_FREE        :u16 = 1 << 0;
-pub const PF_KERNEL      :u16 = 1 << 1;
-pub const PF_PAGE_TABLE  :u16 = 1 << 2;
-pub const PF_VMO         :u16 = 1 << 3;
-pub const PF_PINNED      :u16 = 1 << 4;
-pub const PF_BUDDY_HEAD  :u16 = 1 << 5;
+pub const PF_FREE: u16 = 1 << 0;
+pub const PF_KERNEL: u16 = 1 << 1;
+pub const PF_PAGE_TABLE: u16 = 1 << 2;
+pub const PF_VMO: u16 = 1 << 3;
+pub const PF_PINNED: u16 = 1 << 4;
+pub const PF_BUDDY_HEAD: u16 = 1 << 5;
 
 #[repr(C)]
 struct FreeBlock {
@@ -32,7 +37,6 @@ pub struct PageFrame {
     pub buddy_order: AtomicU16,
 }
 
-
 pub struct Allocator {
     freelist: [usize; ORDER_MAX + 1],
     pub pfndb: &'static mut [PageFrame],
@@ -40,13 +44,7 @@ pub struct Allocator {
 }
 
 impl Allocator {
-    pub const fn new() -> Self {
-        Self {
-            freelist: [0; ORDER_MAX + 1],
-            pfndb: &mut [],
-            pfndb_phys_addr: 0,
-        }
-    }
+    pub const fn new() -> Self { Self { freelist: [0; ORDER_MAX + 1], pfndb: &mut [], pfndb_phys_addr: 0 } }
 
     pub fn init(&mut self) {
         let mut init_allocator = BitmapPMM::init();
@@ -58,9 +56,7 @@ impl Allocator {
         let meta_phys = meta_frame_idx * NORMAL_PAGE_SIZE;
         let meta_virt = meta_phys + *HHDMOFFSET;
 
-        let pfndb_slice = unsafe {
-            from_raw_parts_mut(meta_virt as *mut PageFrame, total_pages)
-        };
+        let pfndb_slice = unsafe { from_raw_parts_mut(meta_virt as *mut PageFrame, total_pages) };
 
         for frame in pfndb_slice.iter_mut() {
             frame.refcount = AtomicU32::new(1);

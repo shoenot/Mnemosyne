@@ -1,6 +1,11 @@
 use core::ptr::write_volatile;
 
-use crate::{util::{bitwise::set_bit, read_from_msr, write_to_msr}, BOOTSTRAP_ALLOC};
+use crate::BOOTSTRAP_ALLOC;
+use crate::util::bitwise::set_bit;
+use crate::util::{
+    read_from_msr,
+    write_to_msr,
+};
 
 pub(crate) const KERNEL_CS: u64 = 0x08;
 pub(crate) const KERNEL_SS: u64 = 0x10;
@@ -11,7 +16,6 @@ const IA32_EFER: u32 = 0xC0000080;
 const IA32_STAR: u32 = 0xC0000081;
 const IA32_LSTAR: u32 = 0xC0000082;
 const IA32_FMASK: u32 = 0xC0000084;
-
 
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
@@ -64,12 +68,12 @@ impl TaskStateSegment {
 fn get_gdt_template() -> [GDTEntry; 7] {
     [
         GDTEntry { limit_low: 0, base_low: 0, base_middle: 0, access: 0, granularity: 0, base_high: 0 },
-        GDTEntry::new(0x9A, 0xA0),  // kernel code
-        GDTEntry::new(0x92, 0xA0),  // kernel data
-        GDTEntry::new(0xF2, 0xA0),  // user data 
-        GDTEntry::new(0xFA, 0xA0),  // user code
-        GDTEntry::new(0, 0), // tss
-        GDTEntry::new(0, 0), // tss
+        GDTEntry::new(0x9A, 0xA0), // kernel code
+        GDTEntry::new(0x92, 0xA0), // kernel data
+        GDTEntry::new(0xF2, 0xA0), // user data
+        GDTEntry::new(0xFA, 0xA0), // user code
+        GDTEntry::new(0, 0),       // tss
+        GDTEntry::new(0, 0),       // tss
     ]
 }
 

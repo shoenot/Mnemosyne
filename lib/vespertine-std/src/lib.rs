@@ -1,12 +1,12 @@
 #![no_std]
 #![no_main]
 
-pub mod fs;
-mod error;
-mod path;
 pub mod env;
-pub mod socket;
+mod error;
+pub mod fs;
 mod io;
+mod path;
+pub mod socket;
 pub use error::*;
 pub use io::*;
 mod exec;

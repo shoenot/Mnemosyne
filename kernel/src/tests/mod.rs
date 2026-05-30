@@ -1,8 +1,8 @@
 use crate::klogln;
 
 pub mod memory_tests;
-pub mod smp_tests;
 pub mod object_tests;
+pub mod smp_tests;
 
 pub const RUN_TESTS: bool = false;
 

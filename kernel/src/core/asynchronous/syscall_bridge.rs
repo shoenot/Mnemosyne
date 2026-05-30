@@ -1,10 +1,30 @@
-use core::{pin::Pin, task::{Context, Poll}};
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+use alloc::task::Wake;
+use core::pin::Pin;
+use core::task::{
+    Context,
+    Poll,
+};
 
-use alloc::{boxed::Box, sync::Arc, task::Wake};
-use vespertine_abi::{HandleID, Invocation};
+use vespertine_abi::{
+    HandleID,
+    Invocation,
+};
 
-use crate::{arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled}, core::{object::{invoke::InvocationError, vfs::kernel_invoke}, thread::{ThreadControlBlock, ThreadState, dispatch::wake_thread}}};
-
+use crate::arch::{
+    disable_interrupts,
+    enable_interrupts,
+    get_core_data,
+    interrupts_enabled,
+};
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::vfs::kernel_invoke;
+use crate::core::thread::dispatch::wake_thread;
+use crate::core::thread::{
+    ThreadControlBlock,
+    ThreadState,
+};
 
 struct ThreadWaker {
     thread: *mut ThreadControlBlock,
@@ -42,7 +62,9 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
                     (*tcb).state = ThreadState::Blocked;
                 }
                 sched.schedule();
-                if int_state { enable_interrupts(); } 
+                if int_state {
+                    enable_interrupts();
+                }
             }
         }
     }
@@ -64,7 +86,9 @@ pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
                     (*tcb).state = ThreadState::Blocked;
                 }
                 sched.schedule();
-                if int_state { enable_interrupts() };
+                if int_state {
+                    enable_interrupts()
+                };
             }
         }
     }

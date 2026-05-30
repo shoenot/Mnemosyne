@@ -1,8 +1,8 @@
+pub mod blockdev;
 pub mod keyboard;
 pub mod logger;
+pub mod pci;
 pub mod serial;
 pub mod tar;
-pub mod pci;
-pub mod virtio;
 pub mod video;
-pub mod blockdev;
+pub mod virtio;

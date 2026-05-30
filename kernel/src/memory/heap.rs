@@ -1,7 +1,15 @@
 use core::ptr::null_mut;
 
-use vespertine_common::slab::{PageProvider, SlabAllocator};
-use crate::memory::{ALLOCATOR, HHDMOFFSET, BlockSize};
+use vespertine_common::slab::{
+    PageProvider,
+    SlabAllocator,
+};
+
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    HHDMOFFSET,
+};
 
 pub struct KernelPageProvider;
 
@@ -12,7 +20,7 @@ impl PageProvider for KernelPageProvider {
             let phys = ALLOCATOR.alloc(BlockSize::Normal);
             return (phys + *HHDMOFFSET) as *mut u8;
         } else {
-            // large allocations go directly to the buddy 
+            // large allocations go directly to the buddy
             let pages = (size + 4095) / 4096;
             let order = pages.next_power_of_two().trailing_zeros() as usize;
             if let Some(phys) = ALLOCATOR.alloc_order(order) {

@@ -40,7 +40,11 @@ impl Perform for TerminalGrid {
 
         // save to virtual grid
         let idx = self.cursor_y * self.width_chars + self.cursor_x;
-        self.cells[idx] = Cell { char: c, fg: self.current_fg, bg: self.current_bg };
+        self.cells[idx] = Cell {
+            char: c,
+            fg: self.current_fg,
+            bg: self.current_bg,
+        };
 
         // blit directly to fb
         self.draw_cell(self.cursor_x, self.cursor_y);
@@ -50,14 +54,18 @@ impl Perform for TerminalGrid {
     // called when control chars are printed
     fn execute(&mut self, byte: u8) {
         match byte {
-            b'\n' => { self.newline(); self.cursor_x = 0; },
+            b'\n' => {
+                self.newline();
+                self.cursor_x = 0;
+            }
             b'\r' => self.cursor_x = 0,
-            b'\x08' => { // backspace
+            b'\x08' => {
+                // backspace
                 if self.cursor_x > 0 {
                     self.cursor_x -= 1;
                     self.clear_cell(self.cursor_x, self.cursor_y);
                 }
-            },
+            }
             _ => {}
         }
     }
@@ -68,8 +76,7 @@ impl Perform for TerminalGrid {
         _intermediates: &[u8],
         _ignore: bool,
         action: char,
-    )
-    {
+    ) {
         match action {
             'm' => {
                 for param in params.iter() {
@@ -77,38 +84,39 @@ impl Perform for TerminalGrid {
                         [0] => {
                             self.current_fg = 0xe0ddd8;
                             self.current_bg = 0x11080d;
-                        },
+                        }
                         [30..=37] => {
                             self.current_fg = translate_ansi_color(param[0] - 30);
-                        },
+                        }
                         [40..=47] => {
                             self.current_bg = translate_ansi_color(param[0] - 40);
-                        },
+                        }
                         _ => {}
                     }
                 }
-            },
+            }
             'J' => {
                 self.clear_screen();
-            },
+            }
             'N' => {
                 if self.cursor_x > 0 {
                     self.newline();
                     self.cursor_x = 0;
                 }
-            },
+            }
             'n' => {
                 for param in params.iter() {
                     match param {
                         [6] => {
-                            let reply = format!("\x1b[{};{}R", self.cursor_y + 1, self.cursor_x + 1);
+                            let reply =
+                                format!("\x1b[{};{}R", self.cursor_y + 1, self.cursor_x + 1);
                             let _ = sys_write_bytes(self.shell_source, reply.as_bytes());
-                        },
+                        }
                         _ => {}
                     }
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
@@ -135,13 +143,18 @@ impl TerminalGrid {
 
     fn clear_cell(&mut self, col: usize, row: usize) {
         let idx = row * self.width_chars + col;
-        self.cells[idx] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
+        self.cells[idx] = Cell {
+            char: ' ',
+            fg: self.current_fg,
+            bg: self.current_bg,
+        };
 
         let x_start = PADDING_X + col * 8;
         let y_start = PADDING_Y + row * 16;
         for y in 0..16 {
             for x in 0..8 {
-                self.fb.write_pixel(x_start + x, y_start + y, self.current_bg);
+                self.fb
+                    .write_pixel(x_start + x, y_start + y, self.current_bg);
             }
         }
     }
@@ -151,7 +164,7 @@ impl TerminalGrid {
             self.cursor_y += 1;
         } else {
             self.scroll();
-        }   
+        }
     }
 
     fn scroll(&mut self) {
@@ -161,7 +174,11 @@ impl TerminalGrid {
 
         let last_row_start = (self.height_chars - 1) * self.width_chars;
         for i in last_row_start..self.cells.len() {
-            self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
+            self.cells[i] = Cell {
+                char: ' ',
+                fg: self.current_fg,
+                bg: self.current_bg,
+            };
         }
 
         let info = self.fb.info();
@@ -183,10 +200,14 @@ impl TerminalGrid {
     }
 
     pub fn clear_screen(&mut self) {
-        let w = self.width_chars;
-        let h = self.height_chars;
+        let _w = self.width_chars;
+        let _h = self.height_chars;
         for i in 0..self.cells.len() {
-            self.cells[i] = Cell { char: ' ', fg: self.current_fg, bg: self.current_bg };
+            self.cells[i] = Cell {
+                char: ' ',
+                fg: self.current_fg,
+                bg: self.current_bg,
+            };
         }
         let pixels = self.fb.pixels_mut();
         for p in pixels.iter_mut() {
@@ -210,4 +231,3 @@ fn translate_ansi_color(index: u16) -> u32 {
         _ => 0xe0ddd8,
     }
 }
-

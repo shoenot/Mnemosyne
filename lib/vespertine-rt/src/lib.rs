@@ -1,15 +1,24 @@
 #![no_std]
 #![no_main]
-pub mod syscall;
+mod memory;
 pub mod sink;
 pub mod source;
-mod memory;
+pub mod syscall;
 
-use core::{alloc::{GlobalAlloc, Layout}, arch::asm, panic::PanicInfo, ptr::{null, null_mut}, sync::atomic::AtomicUsize};
-use vespertine_abi::{FileOp, HandleID, Invocation, MemPoolOp, ProcessInitPackage, VmoOp};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    arch::asm,
+    panic::PanicInfo,
+    ptr::{null, null_mut},
+    sync::atomic::AtomicUsize,
+};
+use vespertine_abi::{HandleID, Invocation, MemPoolOp, ProcessInitPackage, VmoOp};
 use vespertine_common::{lock::TicketLock, slab::SlabAllocator};
 
-use crate::{memory::{UserPageProvider, create_private_pool, get_memory_manager}, syscall::{sys_close, sys_invoke}};
+use crate::{
+    memory::{UserPageProvider, create_private_pool, get_memory_manager},
+    syscall::{sys_close, sys_invoke},
+};
 
 pub const ARENA_SIZE: usize = 1024 * 64; // pre allocate 64kb per init heap
 
@@ -39,23 +48,29 @@ unsafe impl GlobalAlloc for GlobalUserAlloc {
 }
 
 #[global_allocator]
-pub static ALLOCATOR: GlobalUserAlloc = GlobalUserAlloc { inner: TicketLock::new(None) };
+pub static ALLOCATOR: GlobalUserAlloc = GlobalUserAlloc {
+    inner: TicketLock::new(None),
+};
 
 pub fn init_heap() {
     let mem_man = get_memory_manager().expect("MemoryManger not found");
     let pool = create_private_pool(mem_man).expect("Failed to create MemPool");
 
     let op = MemPoolOp::AllocateVmo { size: ARENA_SIZE };
-    let vmo_id = sys_invoke(pool, &Invocation::MemPool(op))
-        .expect("Failed to allocate initial heap VMO");
+    let vmo_id =
+        sys_invoke(pool, &Invocation::MemPool(op)).expect("Failed to allocate initial heap VMO");
 
-    let op = VmoOp::MapIntoProc { vaddr: 0, len: ARENA_SIZE, vm_flags: 5 };
-    let mapped_addr = sys_invoke(HandleID(vmo_id), &Invocation::Vmo(op))
-        .expect("Failed to map initial heap VMO");
+    let op = VmoOp::MapIntoProc {
+        vaddr: 0,
+        len: ARENA_SIZE,
+        vm_flags: 5,
+    };
+    let mapped_addr =
+        sys_invoke(HandleID(vmo_id), &Invocation::Vmo(op)).expect("Failed to map initial heap VMO");
 
     let _ = sys_close(HandleID(vmo_id));
 
-    let provider = UserPageProvider { 
+    let provider = UserPageProvider {
         mem_pool_handle: pool,
         arena_start: AtomicUsize::new(mapped_addr),
         arena_offset: AtomicUsize::new(0),
@@ -87,7 +102,7 @@ pub extern "sysv64" fn _start(initpkg_ptr: *const ProcessInitPackage) -> ! {
 
     unsafe {
         asm!(
-            "mov rax, 2",           // syscall 2 (terminate)
+            "mov rax, 2", // syscall 2 (terminate)
             "syscall",
             options(noreturn)
         );

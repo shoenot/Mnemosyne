@@ -1,7 +1,6 @@
 pub mod bitwise;
+mod msr;
 pub mod queue;
 pub mod scheduling;
-mod msr;
 
 pub use msr::*;
-

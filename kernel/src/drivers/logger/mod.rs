@@ -1,35 +1,39 @@
+use alloc::boxed::Box;
 use core::fmt::{
     self,
     Write,
 };
 use core::mem::MaybeUninit;
-use core::{ptr, str};
+use core::{
+    ptr,
+    str,
+};
 
-use alloc::boxed::Box;
 use async_trait::async_trait;
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
+use vespertine_abi::op::FileOp;
+use vespertine_abi::{
+    AccessRights,
+    Invocation,
+};
 
 use super::serial::{
+    SerialWriter,
     init_serial,
     log_to_serial,
-    SerialWriter,
 };
 use crate::arch::x86_64::task::syscall::safe_copy_from;
 use crate::boot::FRAMEBUFFER_REQUEST;
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::obj::KernelObject;
 use crate::core::sync::{
     KernelOnceCell,
     TicketLock,
 };
 
-use crate::core::object::obj::KernelObject;
-use crate::core::object::invoke::InvocationError;
-use vespertine_abi::{AccessRights, Invocation};
-use vespertine_abi::op::FileOp;
-use alloc::sync::Arc;
-
-pub const COLOR_BG: u32 = 0x11080d;       
-pub const COLOR_FG: u32 = 0xe0ddd8;       
+pub const COLOR_BG: u32 = 0x11080d;
+pub const COLOR_FG: u32 = 0xe0ddd8;
 
 const FONT_DATA: &[u8] = include_bytes!("../../../../build_deps/zap-ext-light16.psf");
 static FONT: KernelOnceCell<Psf<'static>> = KernelOnceCell::new();
@@ -84,9 +88,7 @@ impl Logger {
         }
     }
 
-    pub fn write_serial_only(&mut self, s: &str) -> fmt::Result {
-        unsafe { self.serial_writer.assume_init_mut().write_str(s) }
-    }
+    pub fn write_serial_only(&mut self, s: &str) -> fmt::Result { unsafe { self.serial_writer.assume_init_mut().write_str(s) } }
 
     pub fn write_screen(&mut self, s: &str) {
         let Some(fb_response) = FRAMEBUFFER_REQUEST.response() else { return };
@@ -148,7 +150,9 @@ impl Logger {
 impl Write for Logger {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         // always write to serial
-        unsafe { self.serial_writer.assume_init_mut().write_str(s)?; }
+        unsafe {
+            self.serial_writer.assume_init_mut().write_str(s)?;
+        }
 
         if self.screen_enabled {
             self.write_screen(s);
@@ -157,9 +161,7 @@ impl Write for Logger {
     }
 }
 
-pub fn disable_screen_logging() {
-    LOGGER.lock().screen_enabled = false;
-}
+pub fn disable_screen_logging() { LOGGER.lock().screen_enabled = false; }
 
 fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) {
     let pixels_per_row = fb.pitch / 4;
@@ -173,7 +175,7 @@ fn putpixel(x: u32, y: u32, color: u32, fb: &Framebuffer) {
 }
 
 fn putchar(c: char, col: u32, row: u32, font: &Psf, fb: &Framebuffer, fg: u32, bg: u32) {
-    let x_base = (col * 8) + 16;  // 16px left margin
+    let x_base = (col * 8) + 16; // 16px left margin
     let y_base = (row * 16) + 16; // 16px top margin
     let Some(pixels) = font.get_glyph_pixels(c as usize) else { return };
     pixels.enumerate().for_each(|(i, p)| {
@@ -190,13 +192,11 @@ pub struct ScreenWriter {}
 
 #[async_trait]
 impl KernelObject for ScreenWriter {
-    fn type_name(&self) -> &'static str {
-        "ScreenWriter"
-    }
+    fn type_name(&self) -> &'static str { "ScreenWriter" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::File(FileOp::Write { offset, buffer_ptr, len }) => {
+            Invocation::File(FileOp::Write { offset: _, buffer_ptr, len }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
                 }
@@ -234,7 +234,6 @@ macro_rules! klogln {
 #[doc(hidden)]
 pub fn _klog(args: fmt::Arguments) { LOGGER.lock().write_fmt(args).unwrap(); }
 
-
 #[macro_export]
 macro_rules! klog_serial {
     ($($arg:tt)*) => ($crate::drivers::logger::_klog_serial(format_args!($($arg)*)));
@@ -250,9 +249,7 @@ macro_rules! klogln_serial {
 pub fn _klog_serial(args: fmt::Arguments) {
     struct SerialOnlyFormatter<'a>(&'a mut Logger);
     impl<'a> core::fmt::Write for SerialOnlyFormatter<'a> {
-        fn write_str(&mut self, s: &str) -> core::fmt::Result {
-            self.0.write_serial_only(s)
-        }
+        fn write_str(&mut self, s: &str) -> core::fmt::Result { self.0.write_serial_only(s) }
     }
 
     let mut logger = LOGGER.lock();

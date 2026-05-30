@@ -1,10 +1,9 @@
 use core::slice;
 
 use vespertine_abi::{HandleID, Invocation, VmoOp};
-use vespertine_rt::syscall::{sys_close, sys_invoke, sys_lookup, sys_read};
+use vespertine_rt::syscall::{sys_close, sys_invoke, sys_read};
 
 use crate::{Error, env, fs::walk_path};
-
 
 #[repr(C)]
 pub struct FramebufferInfo {
@@ -25,15 +24,29 @@ impl Framebuffer {
     pub fn open() -> Result<Self, Error> {
         let handle = walk_path("/Devices/Framebuffer", env::root())?;
 
-        let mut info = FramebufferInfo { width: 0, height: 0, pitch: 0, bpp: 0 };
+        let mut info = FramebufferInfo {
+            width: 0,
+            height: 0,
+            pitch: 0,
+            bpp: 0,
+        };
         let info_ptr = &mut info as *mut _ as *mut u8;
         sys_read(handle, info_ptr, size_of::<FramebufferInfo>(), 0)?;
-        
+
         let size_in_bytes = info.pitch * info.height;
-        let map_op = VmoOp::MapIntoProc { vaddr: 0, len: size_in_bytes, vm_flags: 5 };
+        let map_op = VmoOp::MapIntoProc {
+            vaddr: 0,
+            len: size_in_bytes,
+            vm_flags: 5,
+        };
         let mapped_virt = sys_invoke(handle, &Invocation::Vmo(map_op))?;
-        
-        Ok(Self { handle, info, pixel_ptr: mapped_virt as *mut u32, size_in_bytes })
+
+        Ok(Self {
+            handle,
+            info,
+            pixel_ptr: mapped_virt as *mut u32,
+            size_in_bytes,
+        })
     }
 
     pub fn pixels(&self) -> &[u32] {

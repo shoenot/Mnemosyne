@@ -1,8 +1,28 @@
-use core::{fmt::Debug, ptr::copy_nonoverlapping, sync::atomic::{AtomicUsize, Ordering}};
+use alloc::boxed::Box;
+use alloc::collections::btree_map::BTreeMap;
+use alloc::sync::Arc;
+use alloc::vec::Vec;
+use core::fmt::Debug;
+use core::ptr::copy_nonoverlapping;
+use core::sync::atomic::{
+    AtomicUsize,
+    Ordering,
+};
 
-use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
-
-use crate::{core::{asynchronous::syscall_bridge::block_on, sync::TicketLock}, drivers::blockdev::{AsyncBlockDevice, ext2::{Ext2FileSystem, structs::DiskInode}}, memory::{ALLOCATOR, BlockSize, GLOBAL_PMM, HHDMOFFSET, pmm::{NORMAL_PAGE_SIZE, PF_PINNED}}};
+use crate::core::asynchronous::syscall_bridge::block_on;
+use crate::core::sync::TicketLock;
+use crate::drivers::blockdev::ext2::Ext2FileSystem;
+use crate::drivers::blockdev::ext2::structs::DiskInode;
+use crate::memory::pmm::{
+    NORMAL_PAGE_SIZE,
+    PF_PINNED,
+};
+use crate::memory::{
+    ALLOCATOR,
+    BlockSize,
+    GLOBAL_PMM,
+    HHDMOFFSET,
+};
 
 #[derive(Debug)]
 pub struct Vmo {
@@ -24,18 +44,20 @@ impl PagedBackingStore for Vmo {
 
         let current_size = self.size.load(Ordering::Relaxed);
         if offset >= current_size {
-            return Err(())
+            return Err(());
         }
 
         if let Some(&pfn) = pages.get(&offset) {
-            if pfn != 0 { return Ok(pfn) };
+            if pfn != 0 {
+                return Ok(pfn);
+            };
         }
 
         if self.is_physical {
             return Err(());
         }
 
-        // allocate directly from the pmm 
+        // allocate directly from the pmm
         let pfn = ALLOCATOR.alloc(BlockSize::Normal);
         pages.insert(offset, pfn);
         Ok(pfn as usize)
@@ -72,7 +94,7 @@ impl PagedBackingStore for Vmo {
             for i in 0..num_pages {
                 let offset = i * NORMAL_PAGE_SIZE;
                 pages.entry(offset).or_insert(0);
-            }       
+            }
         }
         self.size.store(new_size, Ordering::Relaxed);
         Ok(())
@@ -98,7 +120,7 @@ impl PagedBackingStore for Vmo {
 
             let child_pfn = ALLOCATOR.alloc(BlockSize::Normal);
 
-            // copy from parent to child if parent was alr allocated. can skip if no 
+            // copy from parent to child if parent was alr allocated. can skip if no
             if let Some(&parent_pfn) = pages.get(&parent_offset) {
                 if parent_pfn != 0 {
                     let parent_virt = parent_pfn + *HHDMOFFSET;
@@ -110,11 +132,7 @@ impl PagedBackingStore for Vmo {
             }
             child_pages.insert(page_offset, child_pfn);
         }
-        Ok(Arc::new(Vmo {
-            size: AtomicUsize::new(len),
-            pages: TicketLock::new(child_pages),
-            is_physical: false,
-        }))
+        Ok(Arc::new(Vmo { size: AtomicUsize::new(len), pages: TicketLock::new(child_pages), is_physical: false }))
     }
 
     fn pin(self: Arc<Self>, offset: usize, len: usize) -> Result<PinnedVmo, ()> {
@@ -144,7 +162,6 @@ impl PagedBackingStore for Vmo {
     }
 }
 
-
 impl Vmo {
     pub fn new(size: usize) -> Arc<Self> {
         let mut pages = BTreeMap::new();
@@ -154,11 +171,7 @@ impl Vmo {
             pages.insert(offset, 0);
         }
 
-        Arc::new(Self {
-            size: AtomicUsize::new(size), 
-            pages: TicketLock::new(pages),
-            is_physical: false
-        })
+        Arc::new(Self { size: AtomicUsize::new(size), pages: TicketLock::new(pages), is_physical: false })
     }
 
     pub fn new_phys(phys_addr: usize, size: usize) -> Arc<Self> {
@@ -169,11 +182,7 @@ impl Vmo {
             pages.insert(offset, phys_addr + offset);
         }
 
-        Arc::new(Self {
-            size: AtomicUsize::new(size), 
-            pages: TicketLock::new(pages),
-            is_physical: true
-        })
+        Arc::new(Self { size: AtomicUsize::new(size), pages: TicketLock::new(pages), is_physical: true })
     }
 }
 
@@ -199,9 +208,7 @@ pub struct PinnedVmo {
 }
 
 impl PinnedVmo {
-    pub fn phys_addrs(&self) -> &[usize] {
-        &self.phys_addrs
-    }
+    pub fn phys_addrs(&self) -> &[usize] { &self.phys_addrs }
 }
 
 impl Drop for PinnedVmo {
@@ -211,7 +218,7 @@ impl Drop for PinnedVmo {
         for &addr in &self.phys_addrs {
             let pfn = addr / NORMAL_PAGE_SIZE;
             if pfn < pmm.pfndb.len() {
-                // clear the pf pinned flag 
+                // clear the pf pinned flag
                 pmm.pfndb[pfn].flags.fetch_and(!PF_PINNED, Ordering::SeqCst);
             }
         }
@@ -223,14 +230,14 @@ pub struct FileVmo {
     pub anonymous_vmo: Arc<Vmo>,
     pub fs: Arc<Ext2FileSystem>,
     pub inode_num: u32,
-    pub inode_data: DiskInode
+    pub inode_data: DiskInode,
 }
 
 impl FileVmo {
     pub fn new(fs: Arc<Ext2FileSystem>, inode_num: u32, inode_data: DiskInode, size: usize) -> Arc<Self> {
         Arc::new(Self { anonymous_vmo: Vmo::new(size), fs, inode_num, inode_data })
     }
-}	
+}
 
 impl PagedBackingStore for FileVmo {
     fn request_page(&self, offset: usize) -> Result<usize, ()> {
@@ -250,7 +257,9 @@ impl PagedBackingStore for FileVmo {
 
         // cache miss
         let page_phys = ALLOCATOR.alloc(BlockSize::Normal) as usize;
-        if page_phys == 0 { return Err(()); }
+        if page_phys == 0 {
+            return Err(());
+        }
 
         let block_size = self.fs.block_size as usize;
         let blocks_per_page = NORMAL_PAGE_SIZE / block_size;
@@ -271,12 +280,10 @@ impl PagedBackingStore for FileVmo {
         Ok(page_phys)
     }
 
-    fn resize_object(&self, new_size: usize) -> Result<(), ()> {
-        self.anonymous_vmo.resize_object(new_size)
-    }
+    fn resize_object(&self, new_size: usize) -> Result<(), ()> { self.anonymous_vmo.resize_object(new_size) }
 
     fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()> {
-        // cow clone: clones current physical pages anonymously 
+        // cow clone: clones current physical pages anonymously
         // so child proc modifications dont write back to file
         self.anonymous_vmo.clone_range(offset, len)
     }
@@ -285,7 +292,7 @@ impl PagedBackingStore for FileVmo {
         let current_size = self.anonymous_vmo.size.load(Ordering::Relaxed);
         if offset + len > current_size {
             return Err(());
-        } 
+        }
 
         let start_page = offset / NORMAL_PAGE_SIZE;
         let end_page = (offset + len).div_ceil(NORMAL_PAGE_SIZE);

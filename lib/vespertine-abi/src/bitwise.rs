@@ -1,9 +1,5 @@
-use core::ops::{
-    BitAnd,
-    BitOr,
-    Not,
-    Shl,
-};
+#![allow(dead_code)]
+use core::ops::{BitAnd, BitOr, Not, Shl};
 
 #[inline]
 pub fn set_bit<T>(value: T, bit: u8) -> T
@@ -48,7 +44,7 @@ macro_rules! define_bitflags {
                 $(#[$flag_meta])*
                 pub const $flag_name: Self = Self($value);
             )*
-            
+
             #[inline(always)]
             pub const fn new() -> Self {
                 Self(0)

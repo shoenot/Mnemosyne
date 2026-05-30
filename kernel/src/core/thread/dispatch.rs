@@ -7,9 +7,9 @@ use crate::arch::get_core_data;
 use crate::arch::x86_64::apic::lapic::ApicDriver;
 use crate::arch::x86_64::task::context::init_thread_stack;
 use crate::core::cpu::{
+    NUM_CORES,
     get_core_data_for,
     try_get_core_data_for,
-    NUM_CORES,
 };
 use crate::core::object::models::process::Process;
 use crate::core::thread::priority::ThreadPriority;
@@ -55,7 +55,9 @@ pub fn spawn_kernel_thread(entry_point: usize, arg: usize, priority: ThreadPrior
     tcb_ptr
 }
 
-pub fn spawn_user_thread(entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process) -> *mut ThreadControlBlock {
+pub fn spawn_user_thread(
+    entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process,
+) -> *mut ThreadControlBlock {
     let tcb_ptr = create_user_tcb(entry_point, user_stack_top, arg, priority, proc).expect("Unable to spawn user thread");
 
     let mut best_core = 0;
@@ -140,7 +142,9 @@ pub fn create_tcb(entry_point: usize, arg: usize, priority: ThreadPriority, proc
     Ok(tcb_ptr)
 }
 
-pub fn create_user_tcb(entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process) -> Result<*mut ThreadControlBlock, ThreadError> {
+pub fn create_user_tcb(
+    entry_point: usize, user_stack_top: usize, arg: usize, priority: ThreadPriority, proc: Process,
+) -> Result<*mut ThreadControlBlock, ThreadError> {
     let stack_size = 4096 * 4;
     let tcb_layout = Layout::new::<ThreadControlBlock>();
     let stack_layout = Layout::from_size_align(stack_size, 4096)?;

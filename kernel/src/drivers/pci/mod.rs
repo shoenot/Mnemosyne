@@ -5,8 +5,9 @@ use crate::util::bitwise::check_bit;
 mod config;
 mod enumerate;
 use alloc::vec::Vec;
-pub use enumerate::enumerate_pci_devices;
+
 pub use config::*;
+pub use enumerate::enumerate_pci_devices;
 use vespertine_common::lock::TicketLock;
 
 pub static PCI_DEVICES: TicketLock<Vec<PCIDevice>> = TicketLock::new(Vec::new());
@@ -25,16 +26,18 @@ pub struct PCIDevice {
 
 impl Display for PCIDevice {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "[INFO] *PCI Device*: Bus: {}, Slot: {}, Function: {},\n                   Vendor ID: {:X}, Device ID: {:X},\n                   Class: {:X}, Subclass: {:X}",
-                              self.bus, self.slot, self.func, self.vendor_id, self.device_id,
-                              self.class, self.subclass)
+        write!(
+            f,
+            "[INFO] *PCI Device*: Bus: {}, Slot: {}, Function: {},\n                   Vendor ID: {:X}, Device ID: {:X},\n                   Class: {:X}, Subclass: {:X}",
+            self.bus, self.slot, self.func, self.vendor_id, self.device_id, self.class, self.subclass
+        )
     }
 }
 
 #[derive(Debug, Copy, Clone)]
 pub enum PCIBar {
     Memory {
-        quad: bool,     // can be mapped in  64 bit (quad) space
+        quad: bool, // can be mapped in  64 bit (quad) space
         prefetchable: bool,
         addr: u64,
         size: u64,
@@ -42,7 +45,7 @@ pub enum PCIBar {
     IOSpace {
         addr: u32,
         size: u64,
-    }
+    },
 }
 
 fn probe_bar_size_mask(bus: u8, slot: u8, func: u8, offset: u8, orig: u32) -> u32 {
@@ -58,7 +61,8 @@ pub fn get_bar(dev: PCIDevice, bar_n: u8) -> PCIBar {
     let rawbar = pci_config_read_32(dev.bus, dev.slot, dev.func, offset);
 
     // get bar type, address etc
-    if !check_bit(rawbar, 0) {   // memory
+    if !check_bit(rawbar, 0) {
+        // memory
         // 0x01 for 'type' is reserved so it can only be quad or not quad
         let quad = if ((rawbar >> 1) & 0b11) == 0x02 { true } else { false };
         let prefetchable = if ((rawbar >> 3) & 0b1) == 1 { true } else { false };
@@ -74,7 +78,8 @@ pub fn get_bar(dev: PCIDevice, bar_n: u8) -> PCIBar {
         mask &= !0xF;
         let size = (!mask) + 1;
         PCIBar::Memory { quad, prefetchable, addr, size }
-    } else {                                    // io
+    } else {
+        // io
         let addr = rawbar & !0x3;
         let mut mask = probe_bar_size_mask(dev.bus, dev.slot, dev.func, offset, rawbar);
         mask &= !0x3;

@@ -1,19 +1,31 @@
+use alloc::sync::Arc;
 use core::str::from_utf8;
 
-use alloc::sync::Arc;
-
-use crate::{core::object::{handle::{AccessRights, HandleID}, invoke::InvocationError, models::{directory::Directory, file::FileObj}, vfs::{kernel_close, kernel_register_obj, kernel_walk, mount_kernel_dir}}, MODULE_REQUEST};
+use crate::MODULE_REQUEST;
+use crate::core::object::handle::{
+    AccessRights,
+    HandleID,
+};
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::directory::Directory;
+use crate::core::object::models::file::FileObj;
+use crate::core::object::vfs::{
+    kernel_close,
+    kernel_register_obj,
+    kernel_walk,
+    mount_kernel_dir,
+};
 
 #[repr(C)]
 struct TarHeader {
-    filename:   [u8; 100],
-    mode:       [u8; 8],
-    uid:        [u8; 8],
-    gid:        [u8; 8],
-    size:       [u8; 12],
-    mtime:      [u8; 12],
-    chksum:     [u8; 8],
-    typeflag:    u8,
+    filename: [u8; 100],
+    mode: [u8; 8],
+    uid: [u8; 8],
+    gid: [u8; 8],
+    size: [u8; 12],
+    mtime: [u8; 12],
+    chksum: [u8; 8],
+    typeflag: u8,
 }
 
 pub fn get_ramdisk_ptr() -> *const u8 {
@@ -34,7 +46,9 @@ pub async fn parse_tar(data: &[u8]) -> Result<(), InvocationError> {
         let header_ptr = &data[offset] as *const u8 as *const TarHeader;
         let header = unsafe { &*header_ptr };
 
-        if header.filename[0] == 0 { break; }
+        if header.filename[0] == 0 {
+            break;
+        }
         let filename_len = header.filename.iter().position(|&c| c == 0).unwrap_or(100);
         let filename_str = from_utf8(&header.filename[..filename_len]).unwrap();
 
@@ -59,15 +73,19 @@ pub async fn parse_tar(data: &[u8]) -> Result<(), InvocationError> {
                 let parent_handle = kernel_walk(parent_path, HandleID(0)).await?;
                 let new_dir_handle = kernel_register_obj(Arc::new(Directory::new()), AccessRights::all());
                 mount_kernel_dir(child_name, new_dir_handle, parent_handle).await;
-                if parent_handle != HandleID(0) { let _ = kernel_close(parent_handle); }
+                if parent_handle != HandleID(0) {
+                    let _ = kernel_close(parent_handle);
+                }
                 let _ = kernel_close(new_dir_handle);
-            },
+            }
             b'0' | b'\0' => {
                 let parent_handle = kernel_walk(parent_path, HandleID(0)).await?;
-                let file_data = &data[offset + 512 .. offset + 512 + file_size];
+                let file_data = &data[offset + 512..offset + 512 + file_size];
                 let file_handle = kernel_register_obj(Arc::new(FileObj::new(file_data.as_ptr(), file_data.len())), AccessRights::all());
                 mount_kernel_dir(child_name, file_handle, parent_handle).await;
-                if parent_handle != HandleID(0) { let _ = kernel_close(parent_handle); }
+                if parent_handle != HandleID(0) {
+                    let _ = kernel_close(parent_handle);
+                }
                 let _ = kernel_close(file_handle);
             }
             _ => return Err(InvocationError::InvalidArgument),

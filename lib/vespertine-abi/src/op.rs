@@ -4,32 +4,67 @@ use core::fmt::Debug;
 #[repr(C)]
 #[derive(Debug)]
 pub enum ChannelOp {
-    PushSmall { data: [u8; 64], len: u8 }, 
-    PushLarge { vmo_handle: HandleID, offset: usize, len: usize },
-    Pull { buffer_ptr: usize },
+    PushSmall {
+        data: [u8; 64],
+        len: u8,
+    },
+    PushLarge {
+        vmo_handle: HandleID,
+        offset: usize,
+        len: usize,
+    },
+    Pull {
+        buffer_ptr: usize,
+    },
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub enum SocketOp {
-    Create { sourceproc: HandleID, sinkproc: HandleID },
-    SetNB { nb: bool },   // non blocking not non binary. but could be non binary. up to u.
+    Create {
+        sourceproc: HandleID,
+        sinkproc: HandleID,
+    },
+    SetNB {
+        nb: bool,
+    }, // non blocking not non binary. but could be non binary. up to u.
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub enum DirectoryOp {
-    Link { name: usize, name_len: usize, handle_id: HandleID },
-    Unlink { name: usize, name_len: usize },
-    Lookup { name: usize, name_len: usize },
-    List { offset: usize, sink: HandleID },
+    Link {
+        name: usize,
+        name_len: usize,
+        handle_id: HandleID,
+    },
+    Unlink {
+        name: usize,
+        name_len: usize,
+    },
+    Lookup {
+        name: usize,
+        name_len: usize,
+    },
+    List {
+        offset: usize,
+        sink: HandleID,
+    },
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub enum FileOp {
-    Read { offset: usize, buffer_ptr: usize, len: usize },
-    Write { offset: usize, buffer_ptr: usize, len: usize },
+    Read {
+        offset: usize,
+        buffer_ptr: usize,
+        len: usize,
+    },
+    Write {
+        offset: usize,
+        buffer_ptr: usize,
+        len: usize,
+    },
     Stat,
     GetVmo,
 }
@@ -37,19 +72,40 @@ pub enum FileOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum VmoOp {
-    GetPage { offset: usize },
-    Resize { new_size: usize },
-    Clone { offset: usize, len: usize },
-    MapIntoProc { vaddr: usize, len: usize, vm_flags: usize }, 
+    GetPage {
+        offset: usize,
+    },
+    Resize {
+        new_size: usize,
+    },
+    Clone {
+        offset: usize,
+        len: usize,
+    },
+    MapIntoProc {
+        vaddr: usize,
+        len: usize,
+        vm_flags: usize,
+    },
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub enum ProcOp {
     Kill,
-    GetStatus { status_ptr: usize },
-    Unmap { vaddr: usize, len: usize },
-    SpawnThread { entry: usize, stack_top: usize, arg: usize, priority: u8 },
+    GetStatus {
+        status_ptr: usize,
+    },
+    Unmap {
+        vaddr: usize,
+        len: usize,
+    },
+    SpawnThread {
+        entry: usize,
+        stack_top: usize,
+        arg: usize,
+        priority: u8,
+    },
 }
 
 #[repr(C)]
@@ -63,9 +119,9 @@ pub enum ThreadOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum ProcManOp {
-    Spawn { 
-        exec_handle: HandleID, 
-        root_handle: HandleID, 
+    Spawn {
+        exec_handle: HandleID,
+        root_handle: HandleID,
         root_rights: AccessRights,
         source: HandleID,
         sink: HandleID,
@@ -103,4 +159,3 @@ pub enum WaitOp {
     One(Signal),
     Many { items_ptr: usize, count: usize },
 }
-

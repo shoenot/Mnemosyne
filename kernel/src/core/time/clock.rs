@@ -10,18 +10,18 @@ use crate::arch::x86_64::interrupts::{
     enable_interrupts,
 };
 use crate::core::sync::KernelOnceCell;
-use crate::core::thread::priority::ThreadPriority;
 use crate::core::thread::ThreadState;
+use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::callout::{
     Callout,
     CalloutPayload,
 };
 use crate::core::time::{
-    TimeFn,
     GET_TIME_FN,
     IA32_TSC_DEADLINE,
     LAPIC_FQ,
     TIME_SRC_FQ,
+    TimeFn,
     USE_TSC_DEADLINE,
 };
 use crate::util::write_to_msr;
@@ -105,8 +105,7 @@ pub fn update_hardware_timer() {
     let current_time = get_time();
 
     let mut next_event = unsafe {
-        if !core_data.scheduler.current_thread.is_null() && 
-            (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
+        if !core_data.scheduler.current_thread.is_null() && (*core_data.scheduler.current_thread).priority != ThreadPriority::IDLE {
             (*core_data.scheduler.current_thread).quantum_expiry
         } else {
             usize::MAX

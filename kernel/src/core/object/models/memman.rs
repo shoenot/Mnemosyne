@@ -1,21 +1,24 @@
-use alloc::sync::Arc;
 use alloc::boxed::Box;
+use alloc::sync::Arc;
+
 use async_trait::async_trait;
-
-use crate::core::{object::{invoke::InvocationError, models::mempool::MemPool, obj::KernelObject}, thread::get_current_process};
-use vespertine_abi::Invocation;
-
 use vespertine_abi::op::MemManOp;
-use vespertine_abi::AccessRights;
+use vespertine_abi::{
+    AccessRights,
+    Invocation,
+};
+
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::models::mempool::MemPool;
+use crate::core::object::obj::KernelObject;
+use crate::core::thread::get_current_process;
 
 #[derive(Debug)]
 pub struct MemoryManager;
 
 #[async_trait]
 impl KernelObject for MemoryManager {
-    fn type_name(&self) -> &'static str {
-        "Memory Manager"
-    }
+    fn type_name(&self) -> &'static str { "Memory Manager" }
 
     async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
@@ -28,13 +31,10 @@ impl KernelObject for MemoryManager {
                 let pool_limit = if limit == 0 { None } else { Some(limit) };
                 let pool = Arc::new(MemPool::new(pool_limit, None));
                 let proc = get_current_process().ok_or(InvocationError::InvalidHandle)?;
-                let handle = proc.proc_handles.write().insert(
-                    pool,
-                    AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE
-                );
+                let handle = proc.proc_handles.write().insert(pool, AccessRights::READ | AccessRights::WRITE | AccessRights::CREATE);
 
                 Ok(handle.0)
-            },
+            }
             _ => Err(InvocationError::UnsupportedOperation),
         }
     }

@@ -1,7 +1,13 @@
 use alloc::sync::Arc;
+
 use limine::framebuffer::Framebuffer;
-use vespertine_abi::{AccessRights, HandleID};
-use crate::{boot::FRAMEBUFFER_REQUEST, core::object::{models::{framebuffer::FramebufferDevice, vmo::VmoObject}, vfs::kernel_register_obj}, drivers::logger, memory::{HHDMOFFSET, vmo::Vmo}};
+
+use crate::boot::FRAMEBUFFER_REQUEST;
+use crate::core::object::models::framebuffer::FramebufferDevice;
+use crate::core::object::models::vmo::VmoObject;
+use crate::drivers::logger;
+use crate::memory::HHDMOFFSET;
+use crate::memory::vmo::Vmo;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

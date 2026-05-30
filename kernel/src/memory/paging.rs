@@ -4,8 +4,8 @@ use core::arch::asm;
 
 use super::pmm::*;
 use crate::memory::{
-    PCAllocator,
     GLOBAL_PMM,
+    PCAllocator,
 };
 
 type PhysAlloc = PCAllocator;
@@ -318,9 +318,7 @@ impl Pager {
     }
 
     // get pml4 frame addr
-    pub fn get_l4_addr(&self) -> u64 {
-        self.active_l4_addr
-    }
+    pub fn get_l4_addr(&self) -> u64 { self.active_l4_addr }
 
     pub fn map_page(&mut self, virt: VirtAddress, phys: u64, flags: u64, phys_offset: u64, size: BlockSize) -> Option<()> {
         if size == BlockSize::Normal {

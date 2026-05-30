@@ -1,7 +1,12 @@
 pub mod smp;
 
 use limine::request::{
-    FramebufferRequest, HhdmRequest, MemmapRequest, ModulesRequest, MpRequest, RsdpRequest
+    FramebufferRequest,
+    HhdmRequest,
+    MemmapRequest,
+    ModulesRequest,
+    MpRequest,
+    RsdpRequest,
 };
 use limine::{
     BaseRevision,

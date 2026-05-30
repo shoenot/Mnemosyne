@@ -1,8 +1,17 @@
-use core::ptr::{null, null_mut};
-
 use alloc::vec::Vec;
+use core::ptr::null_mut;
 
-use crate::{drivers::pci::{PCIBar, PCIDevice, get_bar, pci_config_read_32, pci_get_dev}, klogln, memory::{HHDMOFFSET, PAGER}};
+use crate::drivers::pci::{
+    PCIBar,
+    PCIDevice,
+    get_bar,
+    pci_config_read_32,
+    pci_get_dev,
+};
+use crate::memory::{
+    HHDMOFFSET,
+    PAGER,
+};
 
 #[derive(Debug)]
 pub struct VirtioCapability {
@@ -13,7 +22,7 @@ pub struct VirtioCapability {
     pub bar_idx: u8,
     pub bar_offset: u32,
     pub bar_len: u32,
-    pub notify_off_multiplier: u32
+    pub notify_off_multiplier: u32,
 }
 
 #[derive(Debug)]
@@ -61,16 +70,18 @@ pub fn init_virtio() -> Option<VirtioBlockDriver> {
     let mut mapped_bars = [0; 6];
     for cap in caps {
         let bar_idx = cap.bar_idx as usize;
-        if bar_idx >= 6 { continue; }
+        if bar_idx >= 6 {
+            continue;
+        }
 
         let bar_virt = if mapped_bars[bar_idx] == 0 {
             if let PCIBar::Memory { addr, size, .. } = get_bar(dev, cap.bar_idx) {
                 let mut pager = PAGER.lock();
-                
+
                 let start_phys = addr & !0xFFF;
                 let end_phys = (addr + size).div_ceil(4096) * 4096;
                 let num_pages = (end_phys - start_phys) / 4096;
-                
+
                 for i in 0..num_pages {
                     let page_phys = start_phys + (i * 4096);
                     pager.map_mmio_addr(page_phys).unwrap();
@@ -87,24 +98,21 @@ pub fn init_virtio() -> Option<VirtioBlockDriver> {
         };
 
         let block_virt = bar_virt + cap.bar_offset as u64;
-        
+
         match cap.cfg_type {
             1 => common_cfg = block_virt as *mut VirtioCommonCfg,
             2 => {
                 notify_base = block_virt as *mut u8;
                 notify_off_multiplier = cap.notify_off_multiplier;
-            },
+            }
             3 => isr_cfg = block_virt as *mut u8,
             4 => device_cfg = block_virt as *mut u8,
-            _ => {},
+            _ => {}
         }
     }
 
-    if common_cfg.is_null() || 
-       notify_base.is_null() ||
-       isr_cfg.is_null() ||
-       device_cfg.is_null() {
-           return None;
+    if common_cfg.is_null() || notify_base.is_null() || isr_cfg.is_null() || device_cfg.is_null() {
+        return None;
     }
 
     Some(VirtioBlockDriver {
@@ -128,7 +136,9 @@ pub fn walk_cap(dev: PCIDevice) -> Vec<VirtioCapability> {
     let cap_ptr = (pci_config_read_32(dev.bus, dev.slot, dev.func, 0x34) & 0xFF) as u8;
     let mut current_ptr = cap_ptr;
     let mut caps = Vec::new();
-    if current_ptr == 0 { return caps; }
+    if current_ptr == 0 {
+        return caps;
+    }
     while current_ptr != 0 {
         let cap = pci_config_read_32(dev.bus, dev.slot, dev.func, current_ptr);
         let cap_id = read_byte_slice(cap, 0);
@@ -139,11 +149,7 @@ pub fn walk_cap(dev: PCIDevice) -> Vec<VirtioCapability> {
             let bar_idx = read_byte_slice(pci_config_read_32(dev.bus, dev.slot, dev.func, current_ptr + 4), 0);
             let bar_offset = pci_config_read_32(dev.bus, dev.slot, dev.func, current_ptr + 8);
             let bar_len = pci_config_read_32(dev.bus, dev.slot, dev.func, current_ptr + 12);
-            let notify_off_multiplier = if cfg_type == 2 {
-                pci_config_read_32(dev.bus, dev.slot, dev.func, current_ptr + 16)
-            } else {
-                0
-            };
+            let notify_off_multiplier = if cfg_type == 2 { pci_config_read_32(dev.bus, dev.slot, dev.func, current_ptr + 16) } else { 0 };
             let capability = VirtioCapability { cap_id, next_cap, len, cfg_type, bar_idx, bar_offset, bar_len, notify_off_multiplier };
             caps.push(capability)
         }

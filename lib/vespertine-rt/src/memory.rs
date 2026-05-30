@@ -1,8 +1,15 @@
-use core::{ptr::null_mut, slice, sync::atomic::AtomicUsize};
+use core::{ptr::null_mut, sync::atomic::AtomicUsize};
 
-use vespertine_abi::{HandleID, Invocation, MemManOp, MemPoolOp, ProcOp, Signal, VmoOp, protocol::{MemoryRequest, ResourceResponse}, tag::TAG_SYS_RES_MAN};
+use crate::{
+    get_init_pkg,
+    syscall::{SysError, sys_close, sys_invoke, sys_lookup, sys_read, sys_wait, sys_write},
+};
+use vespertine_abi::{
+    HandleID, Invocation, MemManOp, MemPoolOp, ProcOp, Signal, VmoOp,
+    protocol::{MemoryRequest, ResourceResponse},
+    tag::TAG_SYS_RES_MAN,
+};
 use vespertine_common::slab::PageProvider;
-use crate::{get_init_pkg, syscall::{SysError, sys_close, sys_invoke, sys_lookup, sys_read, sys_wait, sys_write}};
 
 pub fn get_memory_manager() -> Result<HandleID, SysError> {
     let root = HandleID(0);
@@ -50,7 +57,7 @@ impl PageProvider for UserPageProvider {
             }
         }
 
-        // if no fast path then request vmo from kernel 
+        // if no fast path then request vmo from kernel
         loop {
             let alloc_op = Invocation::MemPool(MemPoolOp::AllocateVmo { size });
             let vmo_idx = sys_invoke(self.mem_pool_handle, &alloc_op);
@@ -60,23 +67,26 @@ impl PageProvider for UserPageProvider {
                     let map_op = Invocation::Vmo(VmoOp::MapIntoProc {
                         vaddr: 0,
                         len: size,
-                        vm_flags: 5
+                        vm_flags: 5,
                     });
 
                     let mapped_addr = sys_invoke(vmo_handle, &map_op)
                         .expect("Out of memory: Out of virtual memory");
                     let _ = sys_close(vmo_handle);
                     return mapped_addr as *mut u8;
-                },
+                }
                 Err(SysError::PoolExhausted) => {
                     let pkg = get_init_pkg();
-                    if pkg.is_null() { return null_mut(); }
+                    if pkg.is_null() {
+                        return null_mut();
+                    }
                     let res_man = unsafe {
                         match (*pkg).ext().iter().find(|g| g.tag == TAG_SYS_RES_MAN) {
                             Some(r) => r,
                             None => return null_mut(),
                         }
-                    }.id;
+                    }
+                    .id;
                     let mut req = MemoryRequest {
                         requested_bytes: size,
                         pool_handle: self.mem_pool_handle,
@@ -86,21 +96,19 @@ impl PageProvider for UserPageProvider {
                     sys_write(res_man, req_ptr, req_size, 0)
                         .expect("Could not request more memory");
 
-                    sys_wait(res_man, Signal::READABLE)
-                        .expect("Could not request more memory");
+                    sys_wait(res_man, Signal::READABLE).expect("Could not request more memory");
 
                     let mut res = ResourceResponse { status: 0 };
                     let res_ptr = &mut res as *mut _ as *mut u8;
                     let res_size = size_of::<ResourceResponse>();
-                    sys_read(res_man, res_ptr, res_size, 0)
-                        .expect("Could not request more memory");
+                    sys_read(res_man, res_ptr, res_size, 0).expect("Could not request more memory");
 
                     if res.status == 0 {
                         continue;
                     } else {
                         return null_mut();
                     }
-                },
+                }
                 Err(_) => return null_mut(),
             }
         }

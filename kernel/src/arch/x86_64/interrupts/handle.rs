@@ -19,7 +19,7 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
     }
 
     match handle_page_fault(cr2 as usize, frame.error_code as usize) {
-        Ok(_) => {},
+        Ok(_) => {}
         Err(e) => {
             if crate::arch::x86_64::interrupts::extable::fixup_exception(frame) {
                 return;
@@ -46,7 +46,6 @@ pub(in crate::arch::x86_64::interrupts) fn page_fault_handler(frame: &mut Interr
     }
 }
 
-
 pub(in crate::arch::x86_64::interrupts) fn gpf_handler(frame: &mut InterruptStackFrame) {
     klogln!("General Protection Fault.\nError Code: {:#X}\nStack Frame:\n{:#?}", frame.error_code, frame);
     crate::hcf();
@@ -63,7 +62,7 @@ pub(in crate::arch::x86_64::interrupts) fn timer_interrupt_handler() {
     if core_data.scheduler.idle_thread.is_null() {
         core_data.apic_mode.arm_oneshot(100_000);
         return;
-    } 
+    }
     unsafe {
         let td_tcb_ptr = (*core_data).timer_daemon_tcb;
         if !td_tcb_ptr.is_null() {

@@ -4,20 +4,19 @@ use x86_64::apic::lapic::init_local_apic;
 pub use x86_64::cpu::core::get_core_data;
 use x86_64::cpu::core::{
     activate_core,
-    init_core_data
-    ,
+    init_core_data,
 };
 use x86_64::cpu::fpu::{
     init_cr4,
     init_default_fpu_cxt,
 };
-pub use x86_64::hcf;
 pub(crate) use x86_64::interrupts::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
 pub use x86_64::{
+    hcf,
     init_global_apics,
     init_interrupts,
 };

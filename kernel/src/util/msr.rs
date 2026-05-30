@@ -1,7 +1,7 @@
 use core::arch::asm;
 
 #[inline(always)]
-pub unsafe fn write_to_msr(val: u64, msr: u32) { 
+pub unsafe fn write_to_msr(val: u64, msr: u32) {
     unsafe {
         asm!("wrmsr",
              in("ecx") msr,

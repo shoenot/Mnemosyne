@@ -1,13 +1,17 @@
-use core::ptr::copy_nonoverlapping;
+use alloc::sync::Arc;
+use alloc::vec;
+use alloc::vec::Vec;
 use core::future::Future;
 use core::pin::Pin;
-use core::task::{Context, Poll};
+use core::ptr::copy_nonoverlapping;
+use core::task::{
+    Context,
+    Poll,
+};
 
-use alloc::{sync::Arc, vec::Vec};
-use alloc::vec;
-
+use crate::core::sync::TicketLock;
+use crate::drivers::blockdev::AsyncBlockDevice;
 use crate::memory::HHDMOFFSET;
-use crate::{core::sync::TicketLock, drivers::blockdev::AsyncBlockDevice};
 
 pub struct YieldNow {
     yielded: bool,
@@ -27,9 +31,7 @@ impl Future for YieldNow {
     }
 }
 
-pub fn yield_now() -> YieldNow {
-    YieldNow { yielded: false }
-}
+pub fn yield_now() -> YieldNow { YieldNow { yielded: false } }
 
 #[derive(Debug)]
 pub struct CacheEntry {
@@ -45,7 +47,7 @@ pub struct BlockCache {
     device: Arc<dyn AsyncBlockDevice>,
     block_size: usize,
     sectors_per_block: usize,
-    inner: TicketLock<BlockCacheInner>
+    inner: TicketLock<BlockCacheInner>,
 }
 
 #[derive(Debug)]
@@ -59,30 +61,21 @@ impl BlockCache {
         let sectors_per_block = block_size / 512;
         let mut entries = Vec::with_capacity(num_entries);
         for _ in 0..num_entries {
-            entries.push(CacheEntry {
-                block_id: None,
-                referenced: false,
-                dirty: false,
-                in_flight: false,
-                data: vec![0; block_size],
-            }); 
+            entries.push(CacheEntry { block_id: None, referenced: false, dirty: false, in_flight: false, data: vec![0; block_size] });
         }
 
-        Self { 
-            device, block_size, sectors_per_block,
-            inner: TicketLock::new(BlockCacheInner { entries, clock_hand: 0 }),
-        }
+        Self { device, block_size, sectors_per_block, inner: TicketLock::new(BlockCacheInner { entries, clock_hand: 0 }) }
     }
 
     pub async fn read_block(&self, block_id: usize, dest_phys: u64) -> Result<(), ()> {
-        let mut idx;
-        
+        let idx;
+
         loop {
             let mut hit_idx = None;
             let mut is_in_flight = false;
-            
+
             {
-                let inner = self.inner.lock(); 
+                let inner = self.inner.lock();
                 for (i, entry) in inner.entries.iter().enumerate() {
                     if entry.block_id == Some(block_id) {
                         hit_idx = Some(i);
@@ -111,7 +104,7 @@ impl BlockCache {
                 }
                 return Ok(());
             }
-            
+
             break; // Cache miss, proceed to allocation
         }
 
@@ -126,13 +119,13 @@ impl BlockCache {
                 }
             }
 
-            // second chance eviction if no vacant slot 
+            // second chance eviction if no vacant slot
             if selected_idx.is_none() {
                 let num_entries = inner.entries.len();
                 let mut checked = 0;
                 loop {
                     let i = inner.clock_hand;
-                    
+
                     if inner.entries[i].in_flight {
                         inner.clock_hand = (inner.clock_hand + 1) % num_entries;
                         checked += 1;
@@ -152,13 +145,13 @@ impl BlockCache {
                     }
                 }
             }
-            
+
             // Mark selected slot as in_flight under lock to reserve it
             if let Some(i) = selected_idx {
                 inner.entries[i].in_flight = true;
             }
         }
-        
+
         idx = selected_idx.ok_or(())?;
 
         // writeback evicted if dirty
@@ -178,7 +171,7 @@ impl BlockCache {
             let buffer_phys = old_data.as_ptr() as usize - *HHDMOFFSET;
             let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64)?;
             write_future.await?;
-            
+
             // Clear dirty flag now that writeback is complete
             {
                 let mut inner = self.inner.lock();
@@ -192,7 +185,7 @@ impl BlockCache {
             inner.entries[idx].block_id = Some(block_id);
         }
 
-        // fetch new block from disk directly into evicted buffer 
+        // fetch new block from disk directly into evicted buffer
         let new_sector = block_id as u64 * self.sectors_per_block as u64;
         let entry_phys = {
             let inner = self.inner.lock();
@@ -219,12 +212,12 @@ impl BlockCache {
     }
 
     pub async fn write_block(&self, block_id: usize, src_phys: u64) -> Result<(), ()> {
-        let mut idx;
-        
+        let idx;
+
         loop {
             let mut hit_idx = None;
             let mut is_in_flight = false;
-            
+
             {
                 let inner = self.inner.lock();
                 for (i, entry) in inner.entries.iter().enumerate() {
@@ -253,7 +246,7 @@ impl BlockCache {
                 }
                 return Ok(());
             }
-            
+
             break;
         }
 
@@ -273,7 +266,7 @@ impl BlockCache {
                 let mut checked = 0;
                 loop {
                     let i = inner.clock_hand;
-                    
+
                     if inner.entries[i].in_flight {
                         inner.clock_hand = (inner.clock_hand + 1) % num_entries;
                         checked += 1;
@@ -293,7 +286,7 @@ impl BlockCache {
                     }
                 }
             }
-            
+
             if let Some(i) = selected_idx {
                 inner.entries[i].in_flight = true;
             }
@@ -318,14 +311,14 @@ impl BlockCache {
             let buffer_phys = old_data.as_ptr() as usize - *HHDMOFFSET;
             let write_future = self.device.write_sectors(start_sector, self.sectors_per_block as u32, buffer_phys as u64)?;
             write_future.await?;
-            
+
             {
                 let mut inner = self.inner.lock();
                 inner.entries[idx].dirty = false;
             }
         }
 
-        // overwrite cache entry buffer and mark dirty 
+        // overwrite cache entry buffer and mark dirty
         {
             let mut inner = self.inner.lock();
             let entry = &mut inner.entries[idx];

@@ -3,13 +3,18 @@ use core::ops::{
     Deref,
     DerefMut,
 };
+
+use vespertine_common::lock::{
+    RawLock,
+    RawSpinLock,
+    RawTicketLock,
+};
+
 use crate::arch::{
     disable_interrupts,
     enable_interrupts,
     interrupts_enabled,
 };
-
-use vespertine_common::lock::{RawLock, RawSpinLock, RawTicketLock};
 
 // Kernel version of the generic lock
 

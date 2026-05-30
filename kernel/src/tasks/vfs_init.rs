@@ -1,20 +1,30 @@
 use alloc::slice;
-use vespertine_abi::{AccessRights, HandleID};
+use alloc::sync::Arc;
+
+use vespertine_abi::{
+    AccessRights,
+    HandleID,
+};
+
 use crate::core::object::models::clock::Clock;
 use crate::core::object::models::directory::*;
 use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
-use crate::core::object::vfs::{kernel_register_obj, mount_kernel_dir};
+use crate::core::object::vfs::{
+    kernel_register_obj,
+    mount_kernel_dir,
+};
 use crate::core::sync::KernelOnceCell;
 use crate::drivers::blockdev::AsyncBlockDevice;
 use crate::drivers::blockdev::ext2::mount_ext2_rootfs;
-use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
+use crate::drivers::tar::{
+    get_ramdisk_ptr,
+    get_ramdisk_size,
+    parse_tar,
+};
 use crate::drivers::video::init_framebuffer;
-use crate::drivers::virtio::blk::VirtioBlockDevice;
 use crate::klogln;
-
-use alloc::sync::Arc;
 
 pub static BLOCK_DEVICE: KernelOnceCell<Arc<dyn AsyncBlockDevice>> = KernelOnceCell::new();
 
@@ -29,7 +39,7 @@ pub async fn init_vfs() {
     let srv_handle = kernel_register_obj(srv_dir, AccessRights::READ | AccessRights::WRITE);
     let log_handle = kernel_register_obj(log_dir, AccessRights::READ | AccessRights::WRITE);
 
-    // mount all dirs 
+    // mount all dirs
     mount_kernel_dir("Devices", dev_handle, HandleID(0)).await;
     mount_kernel_dir("System", sys_handle, HandleID(0)).await;
     mount_kernel_dir("Services", srv_handle, sys_handle).await;

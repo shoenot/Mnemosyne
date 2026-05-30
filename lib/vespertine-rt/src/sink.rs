@@ -11,7 +11,10 @@ pub struct SinkWriter {
 
 impl SinkWriter {
     pub const fn new() -> Self {
-        Self { buf: [0u8; 1024], pos: 0 }
+        Self {
+            buf: [0u8; 1024],
+            pos: 0,
+        }
     }
 
     fn flush(&mut self) {
@@ -20,11 +23,17 @@ impl SinkWriter {
         }
 
         let pkg = get_init_pkg();
-        let handle = if pkg.is_null() { HandleID(3) } else {
+        let handle = if pkg.is_null() {
+            HandleID(3)
+        } else {
             unsafe { (*pkg).sink_handle }
         };
 
-        let op = FileOp::Write { offset: 0, buffer_ptr: self.buf.as_ptr() as *mut u8 as usize, len: self.pos };
+        let op = FileOp::Write {
+            offset: 0,
+            buffer_ptr: self.buf.as_ptr() as *mut u8 as usize,
+            len: self.pos,
+        };
         let _ = sys_invoke(handle, &Invocation::File(op));
         self.pos = 0;
     }
@@ -50,9 +59,9 @@ impl fmt::Write for SinkWriter {
 }
 
 impl Drop for SinkWriter {
-	fn drop(&mut self) {
-            self.flush();
-	}
+    fn drop(&mut self) {
+        self.flush();
+    }
 }
 
 #[macro_export]

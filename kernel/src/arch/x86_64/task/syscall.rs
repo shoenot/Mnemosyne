@@ -1,9 +1,18 @@
-use core::{fmt::Display, ptr::copy_nonoverlapping, mem::zeroed};
+use alloc::string::String;
+use alloc::vec::Vec;
+use core::fmt::Display;
+use core::mem::zeroed;
+use core::ptr::copy_nonoverlapping;
 
-use alloc::{string::String, vec::Vec};
-
-use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{asynchronous::syscall_bridge::handle_sys_invoke, object::{handle::HandleID, invoke::InvocationError, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, klogln_serial, terminate_thread};
 use vespertine_abi::Invocation;
+
+use crate::arch::get_core_data;
+use crate::arch::x86_64::task::context::SyscallFrame;
+use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
+use crate::core::object::handle::HandleID;
+use crate::core::object::invoke::InvocationError;
+use crate::core::object::vfs::kernel_close;
+use crate::terminate_thread;
 
 pub enum SysError {
     Success = 0,
@@ -28,7 +37,7 @@ pub enum SysError {
     // System Errors
     UnknownSyscall = 41,
 
-    ThreadSpawnFail = 50
+    ThreadSpawnFail = 50,
 }
 
 impl Display for SysError {
@@ -107,11 +116,17 @@ unsafe extern "sysv64" {
 }
 
 pub fn fetch_user_string(ptr: *const u8, len: usize, strlen_max: usize) -> Result<String, SysError> {
-    if len > strlen_max { return Err(SysError::InvalidArgument) };
-    if ptr.is_null() { return Err(SysError::BadAddress) };
+    if len > strlen_max {
+        return Err(SysError::InvalidArgument);
+    };
+    if ptr.is_null() {
+        return Err(SysError::BadAddress);
+    };
 
     let end = (ptr as usize).checked_add(len).ok_or(SysError::BadAddress)?;
-    if end >= 0xFFFF_8000_0000_0000 { return Err(SysError::BadAddress) };
+    if end >= 0xFFFF_8000_0000_0000 {
+        return Err(SysError::BadAddress);
+    };
 
     let mut str_buf = Vec::with_capacity(len);
     let str_buf_ptr = str_buf.as_mut_ptr();
@@ -129,7 +144,9 @@ pub fn give_user_string(user_buffer: *mut u8, kernel_string: String) -> Result<(
     let len = bytes.len();
     let src_ptr = bytes.as_ptr();
 
-    if user_buffer.is_null() { return Err(SysError::BadAddress) };
+    if user_buffer.is_null() {
+        return Err(SysError::BadAddress);
+    };
 
     safe_copy_to(user_buffer, src_ptr, len);
 
@@ -139,7 +156,9 @@ pub fn give_user_string(user_buffer: *mut u8, kernel_string: String) -> Result<(
 pub fn safe_copy_from(dst: *mut u8, src: *const u8, len: usize) -> bool {
     // if src is a kernel address, just memcopy directly
     if (src as usize) >= 0xFFFF_8000_0000_0000 {
-        unsafe { copy_nonoverlapping(src, dst, len); }
+        unsafe {
+            copy_nonoverlapping(src, dst, len);
+        }
         true
     } else {
         unsafe { copy_from_user(dst, src, len) }
@@ -148,7 +167,9 @@ pub fn safe_copy_from(dst: *mut u8, src: *const u8, len: usize) -> bool {
 
 pub fn safe_copy_to(dst: *mut u8, src: *const u8, len: usize) -> bool {
     if (dst as usize) >= 0xFFFF_8000_0000_0000 {
-        unsafe { copy_nonoverlapping(src, dst, len); }
+        unsafe {
+            copy_nonoverlapping(src, dst, len);
+        }
         true
     } else {
         unsafe { copy_to_user(dst, src, len) }
@@ -172,11 +193,8 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
 
                 // copy from uspace to kspace
                 let mut kspace_inv = zeroed::<Invocation>();
-                let copy_success = copy_from_user(
-                    &mut kspace_inv as *mut _ as *mut u8,
-                    uspace_inv_ptr as *const u8,
-                    size_of::<Invocation>()
-                );
+                let copy_success =
+                    copy_from_user(&mut kspace_inv as *mut _ as *mut u8, uspace_inv_ptr as *const u8, size_of::<Invocation>());
 
                 if !copy_success {
                     (*frame).rax = SysError::BadAddress as usize;
@@ -184,27 +202,25 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                 }
 
                 handle_sys_invoke(HandleID(handle_id), kspace_inv)
-            },
-            1 => {
-                match kernel_close(HandleID(handle_id)) {
-                    Ok(_) => Ok(0),
-                    Err(e) => Err(e),
-                }
             }
-            2 | 3 => { 
-                terminate_thread!();
+            1 => match kernel_close(HandleID(handle_id)) {
+                Ok(_) => Ok(0),
+                Err(e) => Err(e),
             },
+            2 | 3 => {
+                terminate_thread!();
+            }
             _ => {
                 (*frame).rax = SysError::UnknownSyscall as usize;
                 return;
-            },
+            }
         };
 
         match ret {
             Ok(payload) => {
                 (*frame).rax = SysError::Success as usize;
                 (*frame).rdx = payload;
-            },
+            }
             Err(e) => (*frame).rax = SysError::from_invocation_err(e) as usize,
         }
     }

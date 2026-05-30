@@ -1,11 +1,11 @@
 #![no_std]
 #![no_main]
-pub mod op;
-pub mod tag;
-pub mod protocol;
 mod bitwise;
+pub mod op;
+pub mod protocol;
+pub mod tag;
 
-use core::{fmt::Debug, option::Iter, slice};
+use core::{fmt::Debug, slice};
 pub use op::*;
 
 #[repr(C)]

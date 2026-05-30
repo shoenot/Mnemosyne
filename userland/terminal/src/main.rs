@@ -5,15 +5,17 @@ mod term;
 
 use alloc::vec;
 use vespertine_abi::tag::{TAG_SYS_PROCMAN, TAG_SYS_SOCKFAC};
-use vespertine_abi::{AccessRights, HandleGrant, HandleID, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp};
-use vespertine_rt::println;
-use vespertine_rt::syscall::{SysError, sys_create_socket, sys_invoke, sys_read, sys_wait, sys_write, sys_write_bytes};
-use vespertine_std::{ErrorKind, Exec, env};
+use vespertine_abi::{
+    AccessRights, HandleGrant, Invocation, ProcessInitPackage, Signal, WaitItem, WaitOp,
+};
+use vespertine_rt::syscall::{
+    sys_create_socket, sys_invoke, sys_read, sys_write_bytes,
+};
 use vespertine_std::{Error, fb::Framebuffer};
+use vespertine_std::{ErrorKind, Exec, env};
 
-
-use crate::term::{PADDING_X, PADDING_Y, TerminalGrid};
 use crate::term::Cell;
+use crate::term::{PADDING_X, PADDING_Y, TerminalGrid};
 
 extern crate alloc;
 
@@ -29,11 +31,19 @@ pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
 }
 
 #[unsafe(no_mangle)]
-fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
+fn run(_pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let sf = env::find_tag(TAG_SYS_SOCKFAC)
-        .ok_or(Error { kind: ErrorKind::AccessDenied, message: "SockFac not passed to terminal" })?.id;
+        .ok_or(Error {
+            kind: ErrorKind::AccessDenied,
+            message: "SockFac not passed to terminal",
+        })?
+        .id;
     let pm = env::find_tag(TAG_SYS_PROCMAN)
-        .ok_or(Error { kind: ErrorKind::AccessDenied, message: "ProcMan not passed to terminal" })?.id;
+        .ok_or(Error {
+            kind: ErrorKind::AccessDenied,
+            message: "ProcMan not passed to terminal",
+        })?
+        .id;
 
     let fb = Framebuffer::open()?;
     let info = fb.info();
@@ -57,7 +67,14 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         input_len: 0,
         current_fg: FG_COLOR,
         current_bg: BG_COLOR,
-        cells: vec![ Cell { char: ' ', fg: FG_COLOR, bg: BG_COLOR }; width_chars * height_chars ],
+        cells: vec![
+            Cell {
+                char: ' ',
+                fg: FG_COLOR,
+                bg: BG_COLOR
+            };
+            width_chars * height_chars
+        ],
         fb,
         shell_source: shell_stdin_write,
     };
@@ -66,9 +83,16 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     let kbd_handle = env::source();
 
-
-    let sf_grant = HandleGrant { id: sf, rights: AccessRights::all(), tag: TAG_SYS_SOCKFAC };
-    let pm_grant = HandleGrant { id: pm, rights: AccessRights::all(), tag: TAG_SYS_PROCMAN };
+    let sf_grant = HandleGrant {
+        id: sf,
+        rights: AccessRights::all(),
+        tag: TAG_SYS_SOCKFAC,
+    };
+    let pm_grant = HandleGrant {
+        id: pm,
+        rights: AccessRights::all(),
+        tag: TAG_SYS_PROCMAN,
+    };
 
     Exec::new("shell")
         .source(shell_stdin_read)
@@ -82,21 +106,33 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     let mut buf = [0u8; 256];
 
     let mut wait_items = [
-        WaitItem { handle: kbd_handle, signal: Signal::READABLE, pending: Signal(0) },
-        WaitItem { handle: shell_stdout_read, signal: Signal::READABLE, pending: Signal(0) },
+        WaitItem {
+            handle: kbd_handle,
+            signal: Signal::READABLE,
+            pending: Signal(0),
+        },
+        WaitItem {
+            handle: shell_stdout_read,
+            signal: Signal::READABLE,
+            pending: Signal(0),
+        },
     ];
 
     loop {
         // block until either kbd or stdout is readable
-        let wait_op = WaitOp::Many { items_ptr: wait_items.as_mut_ptr() as usize, count: wait_items.len() };
+        let wait_op = WaitOp::Many {
+            items_ptr: wait_items.as_mut_ptr() as usize,
+            count: wait_items.len(),
+        };
         sys_invoke(env::self_handle(), &Invocation::Wait(wait_op))?;
 
-        // kbd input - fwd to shell, also echo locally 
+        // kbd input - fwd to shell, also echo locally
         if wait_items[0].pending.contains(Signal::READABLE) {
             match sys_read(kbd_handle, buf.as_mut_ptr(), buf.len(), 0) {
                 Ok(n) if n > 0 => {
                     let first_char = buf[0];
-                    if first_char == b'\x08' { // backspace
+                    if first_char == b'\x08' {
+                        // backspace
                         if grid.input_len > 0 {
                             grid.input_len -= 1;
                             vte_parser.advance(&mut grid, &buf[..n]);
@@ -113,20 +149,22 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
                         vte_parser.advance(&mut grid, &buf[..n]);
                         let _ = sys_write_bytes(shell_stdin_write, &buf[..n]);
                     }
-                },
-                _ => {},
+                }
+                _ => {}
             }
         }
 
-        // shell output 
+        // shell output
         if wait_items[1].pending.contains(Signal::READABLE) {
             grid.input_len = 0;
             match sys_read(shell_stdout_read, buf.as_mut_ptr(), buf.len(), 0) {
                 Ok(n) if n > 0 => {
                     vte_parser.advance(&mut grid, &buf[..n]);
-                },
-                Ok(0) => { break; },
-                _ => {},
+                }
+                Ok(0) => {
+                    break;
+                }
+                _ => {}
             }
         }
 
@@ -135,4 +173,3 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
     }
     Ok(())
 }
-

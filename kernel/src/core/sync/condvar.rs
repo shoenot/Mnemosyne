@@ -10,9 +10,9 @@ use crate::core::sync::{
     MutexGuard,
     TicketLock,
 };
+use crate::core::thread::ThreadState;
 use crate::core::thread::dispatch::wake_thread;
 use crate::core::thread::wait::WaitQueue;
-use crate::core::thread::ThreadState;
 
 struct CondVar {
     wait_queue: TicketLock<WaitQueue>,
@@ -38,7 +38,9 @@ impl CondVar {
 
             get_core_data().scheduler.schedule();
 
-            if int_state { enable_interrupts() };
+            if int_state {
+                enable_interrupts()
+            };
 
             mutex.lock()
         }
