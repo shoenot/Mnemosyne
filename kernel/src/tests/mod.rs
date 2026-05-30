@@ -15,12 +15,12 @@ pub fn run_pre_vfs_tests() {
     klogln!("================= ALL DIAGNOSTIC UNIT TESTS PASSED =================");
 }
 
-pub fn run_post_vfs_tests() {
+pub async fn run_post_vfs_tests() {
     if !RUN_TESTS {
         return;
     }
     klogln!("========== RUNNING SYSTEM DIAGNOSITC UNIT TESTS (PHASE 2) ==========");
-    object_tests::run_object_tests();
+    object_tests::run_object_tests().await;
     klogln!("================= ALL DIAGNOSTIC UNIT TESTS PASSED =================");
 }
 

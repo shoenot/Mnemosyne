@@ -2,6 +2,7 @@ use core::{hint::spin_loop, pin::Pin, ptr::{addr_of, addr_of_mut, read_volatile,
 
 use alloc::vec::Vec;
 use vespertine_common::lock::TicketLock;
+use crate::drivers::blockdev::AsyncBlockDevice;
 
 use crate::{drivers::virtio::mmio::{VirtioBlockDriver, init_virtio}, memory::{ALLOCATOR, BlockSize, HHDMOFFSET}, util::bitwise::{set_bit, unset_bit}};
 
@@ -73,7 +74,7 @@ impl Drop for Virtqueue {
 
 pub struct VirtioBlockDevice {
     driver: VirtioBlockDriver,
-    virtqueue: Virtqueue,
+    virtqueue: TicketLock<Virtqueue>,
 }
 
 fn calculate_order(bytes: usize) -> usize {
@@ -262,7 +263,7 @@ pub fn init_block_device() -> Option<VirtioBlockDevice> {
 
         Some(VirtioBlockDevice {
             driver: drv,
-            virtqueue
+            virtqueue: TicketLock::new(virtqueue),
         })
 	}
 }
@@ -297,18 +298,22 @@ pub struct VirtioBlkReqHeader {
     pub sector: u64,
 }
 
-impl VirtioBlockDevice {
-    pub fn read_sectors(&mut self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<(), ()> {
+impl AsyncBlockDevice for VirtioBlockDevice {
+    fn read_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()> {
         self.transfer_sectors(sector, sectors_count, buf_phys, false)
     }
 
-    pub fn write_sectors(&mut self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<(), ()> {
+    fn write_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()> {
         self.transfer_sectors(sector, sectors_count, buf_phys, true)
     }
+}
 
-    pub fn transfer_sectors(&mut self, sector: u64, sectors_count: u32, buf_phys: u64, is_write: bool) -> Result<(), ()> {
+unsafe impl Send for VirtioBlockDevice {}
+unsafe impl Sync for VirtioBlockDevice {}
+
+impl VirtioBlockDevice {
+    pub fn transfer_sectors(&self, sector: u64, sectors_count: u32, buf_phys: u64, is_write: bool) -> Result<BlockTransferFuture, ()> {
         let drv = &self.driver;
-        let vq = &mut self.virtqueue;
 
         unsafe {
             let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
@@ -328,148 +333,58 @@ impl VirtioBlockDevice {
             let status_ptr = (page_virt + 512) as *mut u8;
             write_volatile(status_ptr, 0xFF);
 
-            let d0 = vq.alloc_desc()? as u16;
-            let d1 = vq.alloc_desc()? as u16;
-            let d2 = vq.alloc_desc()? as u16;
+            let (d0, d1, d2, last_seen) = {
+                let mut vq = self.virtqueue.lock();
 
-            // chain desc 0 - header
-            let desc0 = vq.desc.add(d0 as usize);
-            write_volatile(desc0, VqDescriptor {
-                addr: page_phys as u64,
-                len: 16,
-                flags: 1, // next flag
-                next: d1,
-            });
+                let d0 = vq.alloc_desc()? as u16;
+                let d1 = vq.alloc_desc()? as u16;
+                let d2 = vq.alloc_desc()? as u16;
 
-            // chain desc 1 - data buffer
-            let desc1 = vq.desc.add(d1 as usize);
-            write_volatile(desc1, VqDescriptor {
-                addr: buf_phys as u64,
-                len: sectors_count * 512,
-                flags: if is_write { 1 } else { 3 },
-                next: d2,
-            });
+                // chain desc 0 - header
+                let desc0 = vq.desc.add(d0 as usize);
+                write_volatile(desc0, VqDescriptor {
+                    addr: page_phys as u64,
+                    len: 16,
+                    flags: 1, // next flag
+                    next: d1,
+                });
 
-            // chain desc 2 - status byte
-            let desc2 = vq.desc.add(d2 as usize);
-            write_volatile(desc2, VqDescriptor {
-                addr: (page_phys + 512) as u64,
-                len: 1,
-                flags: 2,
-                next: 0xFFFF, 
-            });
+                // chain desc 1 - data buffer
+                let desc1 = vq.desc.add(d1 as usize);
+                write_volatile(desc1, VqDescriptor {
+                    addr: buf_phys as u64,
+                    len: sectors_count * 512,
+                    flags: if is_write { 1 } else { 3 },
+                    next: d2,
+                });
 
-            let avail_idx_ptr = vq.available.idx;
-            let idx = read_volatile(avail_idx_ptr);
-            let slot = (idx as usize) % (vq.queue_size as usize);
-            let ring_slot_ptr = vq.available.ring.add(slot);
-            write_volatile(ring_slot_ptr, d0);
+                // chain desc 2 - status byte
+                let desc2 = vq.desc.add(d2 as usize);
+                write_volatile(desc2, VqDescriptor {
+                    addr: (page_phys + 512) as u64,
+                    len: 1,
+                    flags: 2,
+                    next: 0xFFFF, 
+                });
 
-            write_volatile(avail_idx_ptr, idx.wrapping_add(1));
+                let avail_idx_ptr = vq.available.idx;
+                let idx = read_volatile(avail_idx_ptr);
+                let slot = (idx as usize) % (vq.queue_size as usize);
+                let ring_slot_ptr = vq.available.ring.add(slot);
+                write_volatile(ring_slot_ptr, d0);
 
-            let doorbell_offset = vq.queue_notify_off as usize * drv.notify_off_multiplier as usize;
-            let doorbell_ptr = (drv.notify_base as usize + doorbell_offset) as *mut u16;
-            write_volatile(doorbell_ptr, 0);
+                write_volatile(avail_idx_ptr, idx.wrapping_add(1));
 
-            let used_idx_ptr = vq.used.idx;
-            let last_seen = vq.last_seen_used;
+                let doorbell_offset = vq.queue_notify_off as usize * drv.notify_off_multiplier as usize;
+                let doorbell_ptr = (drv.notify_base as usize + doorbell_offset) as *mut u16;
+                write_volatile(doorbell_ptr, 0);
 
-            while read_volatile(used_idx_ptr) == last_seen {
-                spin_loop();
-            }
+                let last_seen = vq.last_seen_used;
 
-            let status = read_volatile(status_ptr);
-
-            vq.free_desc(d0);
-            vq.free_desc(d1);
-            vq.free_desc(d2);
-
-            vq.last_seen_used = vq.last_seen_used.wrapping_add(1);
-
-            ALLOCATOR.free(page_phys, BlockSize::Normal);
-
-            if status == 0 {
-                Ok(())
-            } else {
-                Err(())
-            }
-        }
-    }
-
-    pub fn read_sectors_async(&mut self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()> {
-        self.transfer_sectors_async(sector, sectors_count, buf_phys, false)
-    }
-
-    pub fn write_sectors_async(&mut self, sector: u64, sectors_count: u32, buf_phys: u64) -> Result<BlockTransferFuture, ()> {
-        self.transfer_sectors_async(sector, sectors_count, buf_phys, true)
-    }
-
-    pub fn transfer_sectors_async(&mut self, sector: u64, sectors_count: u32, buf_phys: u64, is_write: bool) -> Result<BlockTransferFuture, ()> {
-        let drv = &self.driver;
-        let vq = &mut self.virtqueue;
-
-        unsafe {
-            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
-            if page_phys == 0 { return Err(()) };
-            let page_virt = page_phys + *HHDMOFFSET;
-
-            write_bytes(page_virt as *mut u8, 0, 4096);
-
-            let req_hdr = VirtioBlkReqHeader {
-                req_type: if is_write { VIRTIO_BLK_T_OUT } else { VIRTIO_BLK_T_IN },
-                reserved: 0,
-                sector,
+                (d0, d1, d2, last_seen)
             };
-            let hdr_ptr = page_virt as *mut VirtioBlkReqHeader;
-            write_volatile(hdr_ptr, req_hdr);
 
-            let status_ptr = (page_virt + 512) as *mut u8;
-            write_volatile(status_ptr, 0xFF);
-
-            let d0 = vq.alloc_desc()? as u16;
-            let d1 = vq.alloc_desc()? as u16;
-            let d2 = vq.alloc_desc()? as u16;
-
-            // chain desc 0 - header
-            let desc0 = vq.desc.add(d0 as usize);
-            write_volatile(desc0, VqDescriptor {
-                addr: page_phys as u64,
-                len: 16,
-                flags: 1, // next flag
-                next: d1,
-            });
-
-            // chain desc 1 - data buffer
-            let desc1 = vq.desc.add(d1 as usize);
-            write_volatile(desc1, VqDescriptor {
-                addr: buf_phys as u64,
-                len: sectors_count * 512,
-                flags: if is_write { 1 } else { 3 },
-                next: d2,
-            });
-
-            // chain desc 2 - status byte
-            let desc2 = vq.desc.add(d2 as usize);
-            write_volatile(desc2, VqDescriptor {
-                addr: (page_phys + 512) as u64,
-                len: 1,
-                flags: 2,
-                next: 0xFFFF, 
-            });
-
-            let avail_idx_ptr = vq.available.idx;
-            let idx = read_volatile(avail_idx_ptr);
-            let slot = (idx as usize) % (vq.queue_size as usize);
-            let ring_slot_ptr = vq.available.ring.add(slot);
-            write_volatile(ring_slot_ptr, d0);
-
-            write_volatile(avail_idx_ptr, idx.wrapping_add(1));
-
-            let doorbell_offset = vq.queue_notify_off as usize * drv.notify_off_multiplier as usize;
-            let doorbell_ptr = (drv.notify_base as usize + doorbell_offset) as *mut u16;
-            write_volatile(doorbell_ptr, 0);
-
-            let last_seen = vq.last_seen_used;
+            let vq_lock_ptr = addr_of!(self.virtqueue) as *const TicketLock<Virtqueue>;
 
             Ok(BlockTransferFuture {
                 d0,
@@ -477,7 +392,7 @@ impl VirtioBlockDevice {
                 d2,
                 page_phys,
                 last_seen_used: last_seen,
-                vq: vq as *mut Virtqueue,
+                vq: vq_lock_ptr,
             })
         }
     }
@@ -489,7 +404,7 @@ pub struct BlockTransferFuture {
     pub d2: u16,
     pub page_phys: usize,
     pub last_seen_used: u16,
-    pub vq: *mut Virtqueue,
+    pub vq: *const TicketLock<Virtqueue>,
 }
 
 unsafe impl Send for BlockTransferFuture {}
@@ -497,18 +412,19 @@ unsafe impl Send for BlockTransferFuture {}
 impl Future for BlockTransferFuture {
     type Output = Result<(), ()>;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let vq = unsafe { &mut *self.vq };
-
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         unsafe {
             let status_ptr = (self.page_phys + 512 + *HHDMOFFSET) as *const u8;
             let status = read_volatile(status_ptr);
 
             if status != 0xFF {
                 // the transfer is complete
-                vq.free_desc(self.d0);
-                vq.free_desc(self.d1);
-                vq.free_desc(self.d2);
+                {
+                    let mut vq = (*self.vq).lock();
+                    vq.free_desc(self.d0);
+                    vq.free_desc(self.d1);
+                    vq.free_desc(self.d2);
+                }
 
                 ALLOCATOR.free(self.page_phys, BlockSize::Normal);
 
@@ -520,7 +436,10 @@ impl Future for BlockTransferFuture {
             } else {
                 // register this tasks waker so it gets woken up when io completes
                 let waker = cx.waker().clone();
-                vq.wakers.lock()[self.d0 as usize] = Some(waker);
+                {
+                    let vq = (*self.vq).lock();
+                    vq.wakers.lock()[self.d0 as usize] = Some(waker);
+                }
                 Poll::Pending
             }
         }
@@ -528,20 +447,28 @@ impl Future for BlockTransferFuture {
 }
 
 pub extern "C" fn virtio_blk_poll_thread(arg: usize) -> ! {
+    // only lock vq when absolutely necessary and drop it before firing waker 
     let blk = arg as *mut VirtioBlockDevice;
     unsafe {
-        let vq = &mut (*blk).virtqueue;
-        let mut last_seen = vq.last_seen_used;
+        let mut last_seen = {
+            let vq = (*blk).virtqueue.lock();
+            vq.last_seen_used
+        };
 
         loop {
-            let current_used = read_volatile(vq.used.idx);
+            let (current_used, queue_size, used_ring_ptr) = {
+                let vq = (*blk).virtqueue.lock();
+                (read_volatile(vq.used.idx), vq.queue_size as usize, vq.used.ring)
+            };  
+
             if current_used != last_seen {
                 while last_seen != current_used {
-                    let slot = (last_seen as usize) % (vq.queue_size as usize);
-                    let elem_ptr = vq.used.ring.add(slot);
+                    let slot = (last_seen as usize) % (queue_size as usize);
+                    let elem_ptr = used_ring_ptr.add(slot);
                     let desc_id = read_volatile(addr_of!((*elem_ptr).id)) as usize;
 
                     let waker_opt = {
+                        let vq = (*blk).virtqueue.lock();
                         let mut wakers = vq.wakers.lock();
                         if desc_id < wakers.len() {
                             wakers[desc_id].take()
@@ -556,7 +483,10 @@ pub extern "C" fn virtio_blk_poll_thread(arg: usize) -> ! {
 
                     last_seen = last_seen.wrapping_add(1);
                 }
-                vq.last_seen_used = last_seen;
+                {
+                    let mut vq = (*blk).virtqueue.lock();
+                    vq.last_seen_used = last_seen;
+                }
             }
             spin_loop();
         }

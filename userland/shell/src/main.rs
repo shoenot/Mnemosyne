@@ -37,6 +37,7 @@ use vespertine_std::fs::walk_path;
 use vespertine_std::env;
 use vespertine_std::socket::Socket;
 
+
 #[unsafe(no_mangle)]
 pub extern "sysv64" fn main(pkg_ptr: *const ProcessInitPackage) {
     let pkg = unsafe { &*pkg_ptr };
@@ -53,7 +54,8 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
         .ok_or(Error { kind: ErrorKind::AccessDenied, message: "Socket Factory capability not found" })?.id;
 
     loop {
-        if let Some(col) = get_cursor_column() {
+        let mut kbd_backlog: Vec<u8> = Vec::new();
+        if let Some(col) = get_cursor_column(&mut kbd_backlog) {
             if col > 1 {
                 // print newline if the last program's output didn't do it
                 println!("");
@@ -132,13 +134,13 @@ pub fn pipe_to_sink(source: HandleID, sink: HandleID) {
     let mut buf = [0u8; 128];
     loop {
         let op = Invocation::File(
-            FileOp::Read { offset: 0, buffer_ptr: buf.as_mut_ptr(), len: buf.len() }
+            FileOp::Read { offset: 0, buffer_ptr: buf.as_mut_ptr() as usize, len: buf.len() }
         );
         match sys_invoke(source, &op) {
             Ok(0) | Err(_) => break,        // EOF or Error
             Ok(n) => {
                 let op = Invocation::File(
-                    FileOp::Write { offset: 0, buffer_ptr: buf.as_mut_ptr(), len: n }
+                    FileOp::Write { offset: 0, buffer_ptr: buf.as_mut_ptr() as usize, len: n }
                 );
                 let _ = sys_invoke(sink, &op);
             }
@@ -146,48 +148,88 @@ pub fn pipe_to_sink(source: HandleID, sink: HandleID) {
     }
 }
 
-fn read_char() -> Option<u8> {
+fn read_char(kbd_backlog: &mut Vec<u8>) -> Option<u8> {
+    if !kbd_backlog.is_empty() {
+        return Some(kbd_backlog.remove(0));
+    }
     let mut b = 0u8;
-    let op = FileOp::Read { offset: 0, buffer_ptr: &mut b as *mut u8, len: 1 };
+    let op = FileOp::Read { offset: 0, buffer_ptr: &mut b as *mut u8 as usize, len: 1 };
     match sys_invoke(env::source(), &Invocation::File(op)) {
         Ok(n) if n > 0 => Some(b),
         _ => None,
     }
 }
 
-fn get_cursor_column() -> Option<usize> {
-    // send ansi esc sequence query
+#[allow(unused_assignments)]
+fn get_cursor_column(kbd_backlog: &mut Vec<u8>) -> Option<usize> {
+    // send the ANSI esc sequence query
     vespertine_rt::print!("\x1b[6n");
 
     // expect escape (0x1B)
-    if read_char()? != 0x1B { return None; }
-    // expect '[' (0x5B)
-    if read_char()? != 0x5B { return None; }
-
-    // skip row digits until semicolon
-    loop {
-        let c = read_char()?;
-        if c == b';' {
-            break;
-        }
-        if !c.is_ascii_digit() {
-            return None;
-        }
+    let esc = read_char(kbd_backlog)?;
+    if esc != 0x1B {
+        // not escape, so push it to backlog
+        kbd_backlog.push(esc); 
+        return None;
     }
 
-    // read col digits until R
-    let mut col = 0;
+    // expect '[' (0x5B)
+    let bracket = read_char(kbd_backlog)?;
+    if bracket != 0x5B {
+        kbd_backlog.push(esc);
+        kbd_backlog.push(bracket);
+        return None;
+    }
+
+    // read row digits until semicolon
+    let mut row_bytes = Vec::new();
+    let mut found_semicolon = false;
     loop {
-        let c = read_char()?;
-        if c == b'R' {
+        let c = read_char(kbd_backlog)?;
+        if c == b';' {
+            found_semicolon = true;
             break;
         }
         if c.is_ascii_digit() {
-            col = col * 10 + (c - b'0') as usize;
+            row_bytes.push(c);
         } else {
+            // put everything back in the backlog if shit doesn't come thru right
+            kbd_backlog.push(esc);
+            kbd_backlog.push(bracket);
+            kbd_backlog.extend(row_bytes);
+            kbd_backlog.push(c);
             return None;
         }
     }
+
+    if !found_semicolon { return None; }
+
+    // read col digits until R
+    let mut col = 0;
+    let mut col_bytes = Vec::new();
+    let mut found_r = false;
+    loop {
+        let c = read_char(kbd_backlog)?;
+        if c == b'R' {
+            found_r = true;
+        break;
+        }
+        if c.is_ascii_digit() {
+            col = col * 10 + (c - b'0') as usize;
+            col_bytes.push(c);
+        } else {
+            // you know the drill
+            kbd_backlog.push(esc);
+            kbd_backlog.push(bracket);
+            kbd_backlog.extend(row_bytes);
+            kbd_backlog.push(b';');
+            kbd_backlog.extend(col_bytes);
+            kbd_backlog.push(c);
+            return None;
+        }
+    }
+
+    if !found_r { return None; }
 
     Some(col)
 }

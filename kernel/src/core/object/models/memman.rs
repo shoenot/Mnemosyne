@@ -1,4 +1,6 @@
 use alloc::sync::Arc;
+use alloc::boxed::Box;
+use async_trait::async_trait;
 
 use crate::core::{object::{invoke::InvocationError, models::mempool::MemPool, obj::KernelObject}, thread::get_current_process};
 use vespertine_abi::Invocation;
@@ -9,12 +11,13 @@ use vespertine_abi::AccessRights;
 #[derive(Debug)]
 pub struct MemoryManager;
 
+#[async_trait]
 impl KernelObject for MemoryManager {
     fn type_name(&self) -> &'static str {
         "Memory Manager"
     }
 
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::MemoryManager(MemManOp::CreatePool { limit }) => {
                 if !calling_rights.contains(AccessRights::CREATE) {

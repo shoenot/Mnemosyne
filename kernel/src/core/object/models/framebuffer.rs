@@ -1,4 +1,6 @@
 use alloc::{slice, sync::Arc};
+use alloc::boxed::Box;
+use async_trait::async_trait;
 use vespertine_abi::{AccessRights, FileOp, Invocation};
 use core::cmp;
 
@@ -12,12 +14,13 @@ pub struct FramebufferDevice {
     pub info: FramebufferInfo,
 }
 
+#[async_trait]
 impl KernelObject for FramebufferDevice {
     fn type_name(&self) -> &'static str {
         "Framebuffer Device"
     }
 
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => {
                 if !calling_rights.contains(AccessRights::READ) {
@@ -39,7 +42,7 @@ impl KernelObject for FramebufferDevice {
                 let read_len = cmp::min(bytes_available, len);
                 unsafe {
                     let src = info_bytes.as_ptr().add(offset);
-                    if !safe_copy_to(buffer_ptr, src, read_len) {
+                    if !safe_copy_to(buffer_ptr as *mut u8, src, read_len) {
                         return Err(InvocationError::InvalidPointer);
                     }
                 }
@@ -47,7 +50,7 @@ impl KernelObject for FramebufferDevice {
             },
             // forward vmo ops straight to the framebuffer vmo
             Invocation::Vmo(op) => {
-                self.vmo.invoke(Invocation::Vmo(op), calling_rights)
+                self.vmo.invoke(Invocation::Vmo(op), calling_rights).await
             }
             _ => Err(InvocationError::UnsupportedOperation)
         }

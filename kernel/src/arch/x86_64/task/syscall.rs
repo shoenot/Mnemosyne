@@ -2,7 +2,7 @@ use core::{fmt::Display, ptr::copy_nonoverlapping, mem::zeroed};
 
 use alloc::{string::String, vec::Vec};
 
-use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{object::{handle::HandleID, invoke::InvocationError, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, klogln_serial, terminate_thread};
+use crate::{KERNEL_PROCESS, arch::{get_core_data, x86_64::task::context::SyscallFrame}, core::{asynchronous::syscall_bridge::handle_sys_invoke, object::{handle::HandleID, invoke::InvocationError, vfs::{kernel_close, kernel_invoke}}, thread::get_current_process}, klogln, klogln_serial, terminate_thread};
 use vespertine_abi::Invocation;
 
 pub enum SysError {
@@ -108,6 +108,11 @@ unsafe extern "sysv64" {
 
 pub fn fetch_user_string(ptr: *const u8, len: usize, strlen_max: usize) -> Result<String, SysError> {
     if len > strlen_max { return Err(SysError::InvalidArgument) };
+    if ptr.is_null() { return Err(SysError::BadAddress) };
+
+    let end = (ptr as usize).checked_add(len).ok_or(SysError::BadAddress)?;
+    if end >= 0xFFFF_8000_0000_0000 { return Err(SysError::BadAddress) };
+
     let mut str_buf = Vec::with_capacity(len);
     let str_buf_ptr = str_buf.as_mut_ptr();
 
@@ -178,7 +183,7 @@ pub extern "C" fn syscall_dispatch(frame: *mut SyscallFrame) {
                     return;
                 }
 
-                kernel_invoke(HandleID(handle_id), kspace_inv)
+                handle_sys_invoke(HandleID(handle_id), kspace_inv)
             },
             1 => {
                 match kernel_close(HandleID(handle_id)) {

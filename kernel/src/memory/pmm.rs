@@ -198,6 +198,11 @@ impl Allocator {
     }
 
     pub fn free_order(&mut self, mut block_addr: usize, mut order: usize) {
+        let buddy_pfn = block_addr / NORMAL_PAGE_SIZE;
+        let flags = self.pfndb[buddy_pfn].flags.load(Ordering::Acquire);
+        if flags & PF_FREE != 0 {
+            panic!("PMM DOUBLE-FREE DETECTED AT ADDR: {:#X}", block_addr);
+        }
         while order < ORDER_MAX {
             let block_size = NORMAL_PAGE_SIZE << order;
             let buddy_addr = block_addr ^ block_size;

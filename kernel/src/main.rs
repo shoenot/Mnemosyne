@@ -48,6 +48,7 @@ use crate::core::thread::priority::ThreadPriority;
 use crate::core::time::datetime::epoch_to_datetime;
 use crate::drivers::keyboard::init_keyboard_irq;
 use crate::memory::{ALLOCATOR, GLOBAL_PMM, HHDMOFFSET};
+use crate::drivers::blockdev::AsyncBlockDevice;
 
 pub static KERNEL_PROCESS: KernelOnceCell<Process> = KernelOnceCell::new();
 
@@ -117,7 +118,7 @@ pub extern "C" fn kmain() -> ! {
         let buf_virt = buf_phys + *HHDMOFFSET;
 
         let blk_dev = blk_ptr as *mut VirtioBlockDevice;
-        match unsafe { (*blk_dev).read_sectors_async(0, 1, buf_phys as u64) } {
+        match unsafe { (*blk_dev).read_sectors(0, 1, buf_phys as u64) } {
             Ok(future) => {
                 klogln!("[INFO] Waiting for read future...");
                 if future.await.is_ok() {

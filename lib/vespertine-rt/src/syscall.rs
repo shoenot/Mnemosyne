@@ -86,7 +86,7 @@ pub fn sys_create_socket(factory: HandleID) -> Result<(HandleID, HandleID), SysE
 
 pub fn sys_lookup(dir: HandleID, name: &str) -> Result<HandleID, SysError> {
     let op = Invocation::Directory(DirectoryOp::Lookup {
-        name: name.as_ptr(),
+        name: name.as_ptr() as usize,
         name_len: name.len(),
     });
     let child_handle = sys_invoke(dir, &op)?;
@@ -94,12 +94,12 @@ pub fn sys_lookup(dir: HandleID, name: &str) -> Result<HandleID, SysError> {
 }
 
 pub fn sys_read(handle: HandleID, buffer_ptr: *mut u8, len: usize, offset: usize) -> Result<usize, SysError> {
-    let op = FileOp::Read { offset, buffer_ptr, len };
+    let op = FileOp::Read { offset, buffer_ptr: buffer_ptr as usize, len };
     sys_invoke(handle, &Invocation::File(op))
 }
 
 pub fn sys_write(handle: HandleID, buffer_ptr: *const u8, len: usize, offset: usize) -> Result<usize, SysError> {
-    let op = FileOp::Write { offset, buffer_ptr: buffer_ptr as *mut u8, len };
+    let op = FileOp::Write { offset, buffer_ptr: buffer_ptr as *mut u8 as usize, len };
     sys_invoke(handle, &Invocation::File(op))
 }
 

@@ -7,6 +7,8 @@ mod pmm;
 pub mod vmm;
 pub mod vmo;
 
+use core::alloc::GlobalAlloc;
+
 pub use bootalloc::*;
 use heap::*;
 use vespertine_common::slab::SlabAllocator;
@@ -37,8 +39,28 @@ use crate::{
 
 pub static HHDMOFFSET: KernelOnceCell<usize> = KernelOnceCell::new();
 
+// wrapper that disables interrupts and reenables them (needed bc the slab code was moved to common
+pub struct KernelAllocatorWrapper(SlabAllocator<KernelPageProvider>);
+
+unsafe impl GlobalAlloc for KernelAllocatorWrapper {
+    unsafe fn alloc(&self, layout: core::alloc::Layout) -> *mut u8 {
+        let int_state = interrupts_enabled();
+        disable_interrupts();
+        let ptr = unsafe { self.0.alloc(layout) };
+        if int_state { enable_interrupts(); }
+        ptr
+    }
+
+    unsafe fn dealloc(&self, ptr: *mut u8, layout: core::alloc::Layout) {
+        let int_state = interrupts_enabled();
+        disable_interrupts();
+        unsafe { self.0.dealloc(ptr, layout) };
+        if int_state { enable_interrupts(); }
+    }
+}
+
 #[global_allocator]
-pub static KERNEL_ALLOCATOR: KernelAllocator = SlabAllocator::new(KernelPageProvider);
+pub static KERNEL_ALLOCATOR: KernelAllocatorWrapper = KernelAllocatorWrapper(SlabAllocator::new(KernelPageProvider));
 
 pub static GLOBAL_PMM: TicketLock<Allocator> = TicketLock::new(Allocator::new());
 pub static ALLOCATOR: PCAllocator = PCAllocator {};
@@ -112,3 +134,12 @@ pub fn init() {
     }
     klogln!("[SUCCESS] Switched CR3. Paging handover complete.");
 }
+
+pub fn calculate_order(bytes: usize) -> usize {
+    let mut order = 0;
+    while (1 << order) * 4096 < bytes {
+        order += 1;
+    }
+    order
+}
+

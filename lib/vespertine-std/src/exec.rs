@@ -98,9 +98,9 @@ impl Exec {
             root_rights: self.root_rights,
             source: self.source,
             sink: self.sink,
-            extra_handles_ptr: self.extra_handles.as_ptr(),
+            extra_handles_ptr: self.extra_handles.as_ptr() as usize,
             extra_handles_len: self.extra_handles.len(),
-            args_buffer_ptr: args_buf.as_ptr(),
+            args_buffer_ptr: args_buf.as_ptr() as usize,
             args_buffer_len: args_buf.len(),
         };
 

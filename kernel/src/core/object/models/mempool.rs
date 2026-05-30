@@ -1,6 +1,7 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
+use async_trait::async_trait;
 
 use crate::{core::{object::{invoke::InvocationError, models::vmo::VmoObject, obj::KernelObject}, thread::get_current_process}, memory::vmo::Vmo};
 use vespertine_abi::Invocation;
@@ -63,12 +64,13 @@ impl MemPool {
     }
 }
 
+#[async_trait]
 impl KernelObject for MemPool {
     fn type_name(&self) -> &'static str {
         "MemPool"
     }
 
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::MemPool(MemPoolOp::AllocateVmo { size }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {

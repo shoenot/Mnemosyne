@@ -45,6 +45,7 @@ impl Semaphore {
                     }
                 }
             } else {
+                let int_state = interrupts_enabled();
                 disable_interrupts();
                 let sched = &mut get_core_data().scheduler;
                 let mut wq = self.wait_queue.lock();
@@ -52,7 +53,7 @@ impl Semaphore {
                 let current = self.counter.load(Ordering::Acquire);
                 if current > 0 {
                     drop(wq);
-                    enable_interrupts();
+                    if int_state { enable_interrupts(); }
                     counter = current;
                     continue;
                 }
@@ -68,7 +69,7 @@ impl Semaphore {
                 sched.schedule();
 
                 // continue here when unlocked
-                enable_interrupts();
+                if int_state { enable_interrupts(); }
                 counter = self.counter.load(Ordering::Relaxed);
             }
         }

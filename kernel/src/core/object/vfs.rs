@@ -22,14 +22,14 @@ pub fn kernel_register_obj(obj: Arc<dyn KernelObject>, init_rights: AccessRights
         .insert(obj, init_rights)
 }
 
-pub fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
+pub async fn kernel_invoke(handle: HandleID, invocation: Invocation) -> Result<usize, InvocationError> {
     let demanded_rights = invocation.required_rights();
     let (obj, rights) = {
         let table = get_current_process().expect("No active processes").proc_handles.read();
         let entry = table.resolve_entry(handle, demanded_rights)?;
         (entry.object.clone(), entry.rights)
     }; // drop the lock 
-    obj.invoke(invocation, rights)
+    obj.invoke(invocation, rights).await
 }
 
 pub fn kernel_close(handle: HandleID) -> Result<(), InvocationError> {
@@ -56,26 +56,23 @@ pub fn debug_dump_handles() {
     klogln!("{:#?}", *table);
 }
 
-pub fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
-    // klog!("Linking {}... ", name);
-    // mount '/dev' inside '/'
+pub async fn mount_kernel_dir(name: &str, handle: HandleID, root: HandleID) {
     kernel_invoke(
         root,
-        Invocation::Directory(DirectoryOp::Link { name: name.as_ptr(), name_len: name.len(), handle_id: handle }),
-    )
-    .expect("Link failed.");
-    // klogln!("Link success!");
+        Invocation::Directory(DirectoryOp::Link { name: name.as_ptr() as usize, name_len: name.len(), handle_id: handle }),
+    ).await.expect("Link failed.");
 }
 
-pub fn kernel_walk(path: &str, handle: HandleID) -> Result<HandleID, InvocationError> {
+pub async fn kernel_walk(path: &str, handle: HandleID) -> Result<HandleID, InvocationError> {
     let dirs = path.split('/').collect::<Vec<&str>>();
     let start = if dirs[0] == "" { HandleID(0) } else { handle };
     let mut last: HandleID = start;
     for dir in dirs {
         if dir == "" || dir == "." || dir == ".." { continue; };
+
         let next = HandleID(kernel_invoke(last, Invocation::Directory(
-                DirectoryOp::Lookup { name: dir.as_ptr(), name_len: dir.len() }
-        ))?);
+                DirectoryOp::Lookup { name: dir.as_ptr() as usize, name_len: dir.len() }
+        )).await?);
         if last != start { let _ = kernel_close(last); }
         last = next;
     }

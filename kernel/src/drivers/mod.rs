@@ -5,3 +5,4 @@ pub mod tar;
 pub mod pci;
 pub mod virtio;
 pub mod video;
+pub mod blockdev;

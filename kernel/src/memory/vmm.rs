@@ -1,6 +1,5 @@
 #![allow(dead_code)]
 
-use core::alloc::GlobalAlloc;
 use core::ptr;
 
 use alloc::alloc::{
@@ -323,8 +322,10 @@ impl VirtMemManager {
             if batch_count > 0 {
                 let batch_size_bytes = current_page - batch_start;
                 shootdown(batch_start, batch_size_bytes);
-                for i in 0..batch_count {
-                    self.allocator.free(phys_batch[i],block_size);
+                if target_vma.backing_vmo.is_none() {
+                    for i in 0..batch_count {
+                        self.allocator.free(phys_batch[i],block_size);
+                    }
                 }
             }
         }
@@ -459,12 +460,12 @@ impl VirtMemManager {
                     for l3_idx in 0..512 {
                         let l3_entry = &mut l3.entries[l3_idx];
                         if l3_entry.is_present() {
-                            let l2_phys = entry.get_addr();
+                            let l2_phys = l3_entry.get_addr();
 
                             let l2 = &mut *((l2_phys + *HHDMOFFSET as u64) as *mut PageTable);
                             for l2_idx in 0..512 {
                                 let l2_entry = &mut l2.entries[l2_idx];
-                                if l2_entry.is_present() && l2_entry.is_huge() {
+                                if l2_entry.is_present() && !l2_entry.is_huge() {
                                     let l1_phys = l2_entry.get_addr();
                                     GLOBAL_PMM.lock().free(l1_phys as usize, BlockSize::Normal);
                                 }

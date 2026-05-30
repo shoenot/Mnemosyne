@@ -1,7 +1,9 @@
 use core::cmp::min;
+use alloc::boxed::Box;
 
 use crate::arch::x86_64::task::syscall::safe_copy_to;
 use crate::core::object::invoke::InvocationError;
+use async_trait::async_trait;
 use vespertine_abi::Invocation;
 use crate::core::object::obj::KernelObject;
 use vespertine_abi::op::FileOp;
@@ -17,10 +19,13 @@ pub struct FileObj {
 unsafe impl Send for FileObj {}
 unsafe impl Sync for FileObj {}
 
+#[async_trait]
 impl KernelObject for FileObj {
-    fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
-            Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => { self.read_file(offset, buffer_ptr, len) },
+            Invocation::File(FileOp::Read { offset, buffer_ptr, len }) => { 
+                self.read_file(offset, buffer_ptr as *mut u8, len) 
+            },
             Invocation::File(FileOp::Stat) => self.stat(),
             _ => Err(InvocationError::UnsupportedOperation),
         }

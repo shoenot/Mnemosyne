@@ -13,6 +13,7 @@ use crate::arch::x86_64::io::{
 };
 use crate::arch::x86_64::IO_APIC;
 use crate::core::acpi;
+use crate::core::asynchronous::syscall_bridge::handle_sys_invoke;
 use vespertine_abi::{HandleID, Invocation, op::FileOp};
 use crate::core::object::vfs::kernel_invoke;
 use crate::core::sync::Semaphore;
@@ -137,10 +138,10 @@ pub extern "C" fn kbd_processor_thread(chan_handle_id: usize) -> ! {
 
                 let write_op = Invocation::File(FileOp::Write { 
                     offset: 0,
-                    buffer_ptr: byte_buffer.as_mut_ptr(),
+                    buffer_ptr: byte_buffer.as_mut_ptr() as usize,
                     len: byte_len,
                 });
-                let _ = kernel_invoke(chan_handle, write_op);
+                let _ = handle_sys_invoke(chan_handle, write_op);
             }
         }
 

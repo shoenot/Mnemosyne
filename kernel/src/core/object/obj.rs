@@ -1,11 +1,15 @@
 use alloc::sync::Arc;
-use core::{any::{Any, TypeId}, fmt::Debug};
+use alloc::boxed::Box;
+use async_trait::async_trait;
+use core::fmt::Debug;
 
 use crate::core::object::invoke::InvocationError;
 use vespertine_abi::{AccessRights, Invocation};
 
+#[async_trait]
 pub trait KernelObject: Send + Sync + Debug {
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError>;
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) 
+        -> Result<usize, InvocationError>;
 
     fn type_name(&self) -> &'static str { "Unknown" }
 }

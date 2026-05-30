@@ -24,7 +24,7 @@ impl SinkWriter {
             unsafe { (*pkg).sink_handle }
         };
 
-        let op = FileOp::Write { offset: 0, buffer_ptr: self.buf.as_ptr() as *mut u8, len: self.pos };
+        let op = FileOp::Write { offset: 0, buffer_ptr: self.buf.as_ptr() as *mut u8 as usize, len: self.pos };
         let _ = sys_invoke(handle, &Invocation::File(op));
         self.pos = 0;
     }

@@ -10,7 +10,7 @@ use core::slice::from_raw_parts;
 use vespertine_abi::{AccessRights, HandleID, Invocation};
 use crate::arch::get_core_data;
 use crate::core::object::models::process::Process;
-use crate::core::thread::get_current_process;
+use crate::core::thread::{ThreadControlBlock, get_current_process};
 use vespertine_abi::FileOp;
 use crate::core::object::vfs::kernel_invoke;
 use crate::{KERNEL_PROCESS, klogln};
@@ -45,7 +45,7 @@ impl fmt::Display for LoaderError {
     }
 }
 
-pub fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderError> {
+pub async fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderError> {
     // IN USER THREAD CONTEXT 
     let file_obj = get_current_process()
         .ok_or(LoaderError::FileReadError)?
@@ -55,14 +55,15 @@ pub fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderEr
 
     // SWITCH TO KERNEL PROCESS TEMPORARILY 
     let current_thread = get_core_data().scheduler.get_current_thread();
+
+    let thread_addr = current_thread as usize;
     let old_proc = unsafe { (*current_thread).process.clone() };
 
     unsafe {
         (*current_thread).process = KERNEL_PROCESS.get().unwrap().clone();
     }
 
-    // Invoke object directly 
-    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ)
+    let file_size = file_obj.invoke(Invocation::File(FileOp::Stat), AccessRights::READ).await
         .map_err(|_| LoaderError::FileReadError)?;
 
     let file_layout = Layout::from_size_align(file_size, 8)
@@ -70,19 +71,23 @@ pub fn load_elf(file_handle: HandleID, proc: &Process) -> Result<usize, LoaderEr
 
     let buffer_ptr = unsafe { alloc(file_layout) as *mut u8 };
 
+    // Store the buffer allocation pointer as a usize to prevent it crossing the await boundary
+    let buf_addr = buffer_ptr as usize;
+
     let read_result = file_obj.invoke(
-        Invocation::File(FileOp::Read { offset: 0, buffer_ptr, len: file_size }), 
+        Invocation::File(FileOp::Read { offset: 0, buffer_ptr: buffer_ptr as usize, len: file_size }),
         AccessRights::READ,
     );
 
     // RESTORE USER PROCESS TO DROP PRIVILEGES
+    let thread_ptr = thread_addr as *mut ThreadControlBlock;
     unsafe {
-        (*current_thread).process = old_proc;
+        (*thread_ptr).process = old_proc;
     }
 
-    read_result.map_err(|_| LoaderError::FileReadError)?;
+    read_result.await.map_err(|_| LoaderError::FileReadError)?;
 
-    let file_bytes = unsafe { from_raw_parts(buffer_ptr, file_size) };
+    let file_bytes = unsafe { from_raw_parts(buf_addr as *mut u8, file_size) };
 
     let header = Elf64_Ehdr::from_bytes(file_bytes)?;
     let ph_iter = header.prog_headers(file_bytes).unwrap();

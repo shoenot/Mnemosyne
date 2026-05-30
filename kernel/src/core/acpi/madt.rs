@@ -101,6 +101,10 @@ pub fn parse_madt(sdt_array: &SDTArray) -> MadtInfo {
         let entry_type = entry_header.entry_type;
         let entry_length = entry_header.length as usize;
 
+        if entry_length == 0 {
+            break;
+        }
+
         match entry_type {
             0 => {
                 let entry = unsafe { read_unaligned(current_addr as *const ProcLocalApicEntry) };

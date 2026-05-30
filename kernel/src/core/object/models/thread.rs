@@ -1,4 +1,6 @@
+use async_trait::async_trait;
 use vespertine_abi::{AccessRights, Invocation, ThreadOp};
+use alloc::boxed::Box;
 
 use crate::{arch::{get_core_data, x86_64::apic::lapic::ApicDriver}, core::{cpu::get_core_data_for, object::{invoke::InvocationError, obj::KernelObject}, thread::{ThreadControlBlock, ThreadState, dispatch::wake_thread, schedule::GRAVEYARD}}, terminate_thread};
 
@@ -10,8 +12,9 @@ pub struct Thread {
 unsafe impl Sync for Thread {}
 unsafe impl Send for Thread {}
 
+#[async_trait]
 impl KernelObject for Thread {
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Thread(ThreadOp::Kill) => {
                 if !calling_rights.contains(AccessRights::WRITE) { return Err(InvocationError::AccessDenied) };

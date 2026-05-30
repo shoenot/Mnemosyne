@@ -24,6 +24,7 @@ const WRITER_BIT: usize = 1 << (usize::BITS - 1);
 
 pub struct RwLock<T> {
     state: AtomicUsize,
+    writers_waiting: AtomicUsize,
     writer_queue: TicketLock<WaitQueue>,
     reader_queue: TicketLock<WaitQueue>,
     data: UnsafeCell<T>,
@@ -44,6 +45,7 @@ impl<T> RwLock<T> {
     pub const fn new(data: T) -> Self {
         Self {
             state: AtomicUsize::new(0),
+            writers_waiting: AtomicUsize::new(0),
             writer_queue: TicketLock::new(WaitQueue::new()),
             reader_queue: TicketLock::new(WaitQueue::new()),
             data: UnsafeCell::new(data),
@@ -54,7 +56,7 @@ impl<T> RwLock<T> {
         loop {
             let current = self.state.load(Ordering::Acquire);
 
-            if (current & WRITER_BIT) == 0 {
+            if (current & WRITER_BIT) == 0 && self.writers_waiting.load(Ordering::Relaxed) == 0 {
                 if self.state.compare_exchange_weak(current, current + 1, Ordering::Acquire, Ordering::Relaxed).is_ok() {
                     return RwLockReadGuard { lock: self };
                 }
@@ -96,6 +98,8 @@ impl<T> RwLock<T> {
                 let int_state = interrupts_enabled();
                 disable_interrupts();
 
+                self.writers_waiting.fetch_add(1, Ordering::SeqCst);
+
                 let mut wq = self.writer_queue.lock();
 
                 if self.state.load(Ordering::Acquire) != 0 {
@@ -114,6 +118,8 @@ impl<T> RwLock<T> {
                         enable_interrupts()
                     };
                 }
+
+                self.writers_waiting.fetch_sub(1, Ordering::SeqCst);
             }
         }
     }
@@ -186,16 +192,10 @@ impl<'a, T> Drop for RwLockWriteGuard<'a, T> {
 
 impl<T: Debug> Debug for RwLock<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        let mut d = f.debug_struct("RwLock");
-
         let current_state = self.state.load(Ordering::Relaxed);
-        if current_state & WRITER_BIT != 0 {
-            d.field("data", &"<locked>");
-        } else {
-            unsafe {
-                d.field("data", &*self.data.get());
-            }
-        }
-        d.finish()
+        f.debug_struct("RwLock")
+            .field("writer", &(current_state & WRITER_BIT != 0))
+            .field("readers", &(current_state & !WRITER_BIT))
+            .finish()
     }
 }

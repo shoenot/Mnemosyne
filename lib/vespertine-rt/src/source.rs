@@ -9,7 +9,7 @@ pub fn read_line(buf: &mut [u8]) -> usize {
         let op = Invocation::File(
             FileOp::Read { 
                 offset: 0, 
-                buffer_ptr: buf[total..].as_mut_ptr(), 
+                buffer_ptr: buf[total..].as_mut_ptr() as usize, 
                 len: 1,
             }
         );

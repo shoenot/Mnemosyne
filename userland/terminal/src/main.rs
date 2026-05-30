@@ -88,7 +88,7 @@ fn run(pkg_ptr: *const ProcessInitPackage) -> Result<(), Error> {
 
     loop {
         // block until either kbd or stdout is readable
-        let wait_op = WaitOp::Many { items_ptr: wait_items.as_mut_ptr(), count: wait_items.len() };
+        let wait_op = WaitOp::Many { items_ptr: wait_items.as_mut_ptr() as usize, count: wait_items.len() };
         sys_invoke(env::self_handle(), &Invocation::Wait(wait_op))?;
 
         // kbd input - fwd to shell, also echo locally 

@@ -1,4 +1,6 @@
 use alloc::sync::Arc;
+use alloc::boxed::Box;
+use async_trait::async_trait;
 
 use crate::{core::{object::{invoke::InvocationError, obj::KernelObject}, thread::get_current_process}, memory::vmo::PagedBackingStore};
 use vespertine_abi::Invocation;
@@ -17,8 +19,9 @@ impl VmoObject {
     }
 }
 
+#[async_trait]
 impl KernelObject for VmoObject {
-    fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, _calling_rights: AccessRights) -> Result<usize, InvocationError> {
         if let Invocation::Vmo(vmo_op) = invocation {
             match vmo_op {
                 VmoOp::GetPage { offset } => { 

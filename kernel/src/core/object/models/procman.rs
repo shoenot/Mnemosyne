@@ -1,23 +1,25 @@
 use core::ptr::{null, write};
 
 use crate::{KERNEL_PROCESS, arch::x86_64::task::syscall::safe_copy_from, core::{object::{handle::HandleTable, invoke::InvocationError, models::process::ProcessControlBlock, obj::KernelObject, vfs::kernel_walk}, program::{env::ProcessEnvironment, load_elf}, thread::{dispatch::spawn_user_thread, get_current_process, priority::ThreadPriority}}, memory::{HHDMOFFSET, vmm::{VM_FLAG_USER, VM_FLAG_WRITE}, vmo::{PagedBackingStore, Vmo}}};
+use async_trait::async_trait;
 use vespertine_abi::{HandleGrant, Invocation, ProcessInitPackage};
 use alloc::vec;
 use alloc::vec::Vec;
+use alloc::boxed::Box;
 
 use vespertine_abi::op::ProcManOp;
 use vespertine_abi::{AccessRights, HandleID};
-use vespertine_common::slab::NORMAL_PAGE_SIZE;
 
 #[derive(Debug)]
 pub struct ProcessManager {}
 
+#[async_trait]
 impl KernelObject for ProcessManager {
     fn type_name(&self) -> &'static str {
         "Process Manager"
     }
 
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::ProcessManager(
                 ProcManOp::Spawn { 
@@ -53,7 +55,7 @@ impl KernelObject for ProcessManager {
                 
                 if extra_handles_len > 0 {
                     let mut parent_grants = vec![vespertine_abi::HandleGrant { id: HandleID(0), rights: AccessRights::new(), tag: 0 }; extra_handles_len];
-                    let success = crate::arch::x86_64::task::syscall::safe_copy_from(
+                    let success = safe_copy_from(
                         parent_grants.as_mut_ptr() as *mut u8, 
                         extra_handles_ptr as *const u8,
                         core::mem::size_of::<vespertine_abi::HandleGrant>() * extra_handles_len,
@@ -84,7 +86,7 @@ impl KernelObject for ProcessManager {
                 );
 
                 // load_elf uses the parent's executable_handle since we are in the parent's context
-                let entry_point = load_elf(exec_handle, &new_proc).map_err(|_| InvocationError::InvalidHandle)?; 
+                let entry_point = load_elf(exec_handle, &new_proc).await.map_err(|_| InvocationError::InvalidHandle)?; 
 
                 let mut args_buffer = Vec::with_capacity(args_buffer_len);
                 let mut argc = 0;

@@ -1,8 +1,9 @@
+pub mod syscall_bridge;
 use core::{hint::spin_loop, mem::forget, pin::Pin, ptr::null_mut, sync::atomic::{AtomicPtr, AtomicUsize, Ordering}, task::{Context, Poll, RawWaker, RawWakerVTable, Waker}};
 
 use alloc::{boxed::Box, collections::vec_deque::VecDeque, sync::Arc};
 
-use crate::{arch::get_core_data, core::{sync::{KernelOnceCell, TicketLock}, thread::{ThreadControlBlock, ThreadState, dispatch::wake_thread}}};
+use crate::{arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled}, core::{sync::{KernelOnceCell, TicketLock}, thread::{ThreadControlBlock, ThreadState, dispatch::wake_thread}}};
 
 static TASK_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
@@ -123,11 +124,17 @@ impl Executor {
                 if queue.is_empty() {
                     let sched = &mut get_core_data().scheduler;
                     let current_thread = sched.get_current_thread();
+                    
+                    let int_state = interrupts_enabled();
+                    disable_interrupts();
+
                     unsafe {
                         (*current_thread).state = ThreadState::Blocked;
                     }
                     drop(queue);  // drop right before yield
+
                     sched.schedule();
+                    if int_state { enable_interrupts(); }
                 }
             }
         }

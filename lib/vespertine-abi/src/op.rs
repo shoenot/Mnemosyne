@@ -6,7 +6,7 @@ use core::fmt::Debug;
 pub enum ChannelOp {
     PushSmall { data: [u8; 64], len: u8 }, 
     PushLarge { vmo_handle: HandleID, offset: usize, len: usize },
-    Pull { buffer_ptr: *mut u8 },
+    Pull { buffer_ptr: usize },
 }
 
 #[repr(C)]
@@ -19,17 +19,17 @@ pub enum SocketOp {
 #[repr(C)]
 #[derive(Debug)]
 pub enum DirectoryOp {
-    Link { name: *const u8, name_len: usize, handle_id: HandleID },
-    Unlink { name: *const u8, name_len: usize },
-    Lookup { name: *const u8, name_len: usize },
+    Link { name: usize, name_len: usize, handle_id: HandleID },
+    Unlink { name: usize, name_len: usize },
+    Lookup { name: usize, name_len: usize },
     List { offset: usize, sink: HandleID },
 }
 
 #[repr(C)]
 #[derive(Debug)]
 pub enum FileOp {
-    Read { offset: usize, buffer_ptr: *mut u8, len: usize },
-    Write { offset: usize, buffer_ptr: *mut u8, len: usize },
+    Read { offset: usize, buffer_ptr: usize, len: usize },
+    Write { offset: usize, buffer_ptr: usize, len: usize },
     Stat,
 }
 
@@ -46,7 +46,7 @@ pub enum VmoOp {
 #[derive(Debug)]
 pub enum ProcOp {
     Kill,
-    GetStatus { status_ptr: *mut ProcStatus },
+    GetStatus { status_ptr: usize },
     Unmap { vaddr: usize, len: usize },
     SpawnThread { entry: usize, stack_top: usize, arg: usize, priority: u8 },
 }
@@ -69,10 +69,10 @@ pub enum ProcManOp {
         source: HandleID,
         sink: HandleID,
 
-        extra_handles_ptr: *const crate::HandleGrant,
+        extra_handles_ptr: usize,
         extra_handles_len: usize,
 
-        args_buffer_ptr: *const u8,
+        args_buffer_ptr: usize,
         args_buffer_len: usize,
     },
 }
@@ -100,6 +100,6 @@ pub enum ClockOp {
 #[derive(Debug)]
 pub enum WaitOp {
     One(Signal),
-    Many { items_ptr: *mut WaitItem, count: usize },
+    Many { items_ptr: usize, count: usize },
 }
 

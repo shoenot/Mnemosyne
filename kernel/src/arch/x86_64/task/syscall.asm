@@ -57,6 +57,7 @@ _syscall_entry:
 copy_from_user:
     mov rax, rsi                
     add rax, rdx                
+    jc .fail_boundary_from      ; check for overflow
     mov r8, 0xFFFF800000000000  ; check if address + len encroaches kernel addr space 
     cmp rax, r8
     jae .fail_boundary_from
@@ -84,6 +85,7 @@ copy_from_user:
 copy_to_user:
     mov rax, rdi
     add rax, rdx
+    jc .fail_boundary_to        ; check for overflow
     mov r8, 0xFFFF800000000000
     cmp rax, r8
     jae .fail_boundary_to

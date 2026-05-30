@@ -1,6 +1,9 @@
 use core::cmp::min;
+use core::future::poll_fn;
 use core::sync::atomic::{AtomicBool, Ordering};
+use core::task::{Context, Poll, Waker};
 use alloc::sync::Arc;
+use async_trait::async_trait;
 use crate::arch::{disable_interrupts, enable_interrupts, get_core_data, interrupts_enabled};
 use crate::core::sync::{Mutex, Semaphore, TicketLock};
 use crate::core::object::obj::KernelObject;
@@ -12,6 +15,7 @@ use vespertine_abi::{HandleID, Invocation, Signal, WaitOp};
 use vespertine_abi::op::{FileOp, SocketOp};
 use vespertine_abi::AccessRights;
 use crate::arch::x86_64::task::syscall::{safe_copy_from, safe_copy_to};
+use alloc::boxed::Box;
 
 const BUFFER_SIZE: usize = 4096;
 
@@ -73,22 +77,18 @@ impl RingBuffer {
 #[derive(Debug)]
 pub struct SocketBus {
     pub buffer: Mutex<RingBuffer>,
-    pub semaphore: Semaphore,
     pub is_closed: AtomicBool,
-    pub read_waiters: TicketLock<WaitQueue>,
-    pub write_waiters: TicketLock<WaitQueue>,
-    pub multi_read_waiters: TicketLock<MultiWakeQueue>,
+    pub read_waker: TicketLock<Option<Waker>>,
+    pub write_waker: TicketLock<Option<Waker>>,
 }
 
 impl SocketBus {
     pub fn new() -> Self {
         Self {
             buffer: Mutex::new(RingBuffer::new()),
-            semaphore: Semaphore::new(0),
             is_closed: AtomicBool::new(false),
-            read_waiters: TicketLock::new(WaitQueue::new()),
-            write_waiters: TicketLock::new(WaitQueue::new()),
-            multi_read_waiters: TicketLock::new(MultiWakeQueue::new()),
+            read_waker: TicketLock::new(None),
+            write_waker: TicketLock::new(None),
         }
     }
 }
@@ -100,24 +100,29 @@ pub struct SocketEndpoint {
     pub is_nb: AtomicBool,
 }
 
+#[async_trait]
 impl KernelObject for SocketEndpoint {
     fn type_name(&self) -> &'static str {
         "Socket"
     }
 
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Read { buffer_ptr, len, .. }) => {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
-                self.read(buffer_ptr, len)
+                poll_fn(|cx| {
+                    self.read_async(buffer_ptr as *mut u8, len, cx)
+                }).await
             },
             Invocation::File(FileOp::Write { buffer_ptr, len, .. }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
                     return Err(InvocationError::AccessDenied);
                 }
-                self.write(buffer_ptr, len)
+                poll_fn(|cx| {
+                    self.write_async(buffer_ptr as *mut u8, len, cx)
+                }).await
             },
             Invocation::Socket(SocketOp::SetNB { nb }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
@@ -130,7 +135,9 @@ impl KernelObject for SocketEndpoint {
                 if !calling_rights.contains(AccessRights::READ) {
                     return Err(InvocationError::AccessDenied);
                 }
-                self.wait_for_signals(signal)
+                poll_fn(|cx| {
+                    self.wait_for_signals_async(signal, cx)
+                }).await
             },
             Invocation::Wait(WaitOp::Many { items_ptr, count }) => {
                 // invoke through ProcessControlBlock::invoke, not here manually 
@@ -143,23 +150,18 @@ impl KernelObject for SocketEndpoint {
 
 impl Drop for SocketEndpoint {
     fn drop(&mut self) {
-        // Notify the other side that we are no longer writing
+        // mark the write bus as closed
         self.write_bus.is_closed.store(true, Ordering::SeqCst);
-        self.write_bus.semaphore.signal();
 
-        // wake up any threads blocked waiting to read from the now closed bus 
-        let int_state = interrupts_enabled();
-        disable_interrupts();
-        let mut wq = self.write_bus.read_waiters.lock();
-        loop {
-            let thread = wq.pop();
-            if thread.is_null() {
-                break;
-            } else {
-                wake_thread(thread);
-            }
+        // wake up any reading task waiting on the write bus 
+        if let Some(waker) = self.write_bus.read_waker.lock().take() {
+            waker.wake();
         }
-        if int_state { enable_interrupts(); }
+
+        // ditto for writing tasks
+        if let Some(waker) = self.write_bus.write_waker.lock().take() {
+            waker.wake();
+        }
     }
 }
 
@@ -183,205 +185,131 @@ impl SocketEndpoint {
         (ep1, ep2)
     }
 
-    fn read(&self, buffer_ptr: *mut u8, len: usize) -> Result<usize, InvocationError> {
+    fn read_async(&self, buffer_ptr: *mut u8, len: usize, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
         if len == 0 {
-            return Ok(0);
+            return Poll::Ready(Ok(0));
         }
-        loop {
-            let mut has_data = false;
-            let mut count = 0;
-            let mut is_eof = false;
+        let mut bus = self.read_bus.buffer.lock();
+        if !bus.is_empty() {
+            let mut temp_buf = [0u8; 512];
+            let to_read = min(len, temp_buf.len());
+            let count = bus.pop_slice(&mut temp_buf[..to_read]);
 
-            {
-                let mut bus = self.read_bus.buffer.lock();
-                if !bus.is_empty() {
-                    let mut temp_buf = [0u8; 512];
-                    let to_read = min(len, temp_buf.len());
-                    count = bus.pop_slice(&mut temp_buf[..to_read]);
-
-                    if !safe_copy_to(buffer_ptr, temp_buf.as_ptr(), count) {
-                        return Err(InvocationError::InvalidPointer);
-                    }
-                    has_data = true;
-                } else if self.read_bus.is_closed.load(Ordering::SeqCst) {
-                    is_eof = true;
-                } else if self.is_nb.load(Ordering::SeqCst) {
-                    return Err(InvocationError::WouldBlock);
-                }
+            if !safe_copy_to(buffer_ptr, temp_buf.as_ptr(), count) {
+                return Poll::Ready(Err(InvocationError::InvalidPointer));
             }
 
-            if has_data {
-                if count > 0 {
-                    let int_state = interrupts_enabled();
-                    disable_interrupts();
-
-                    let mut wq = self.read_bus.write_waiters.lock();
-                    let thread = wq.pop();
-                    drop(wq);
-
-                    if int_state { enable_interrupts(); }
-
-                    if !thread.is_null() {
-                        wake_thread(thread);
-                    }
-                }
-                return Ok(count);
+            if let Some(waker) = self.read_bus.write_waker.lock().take() {
+                waker.wake();
             }
 
-            if is_eof {
-                return Ok(0);
-            }
-
-            self.read_bus.semaphore.wait();
+            return Poll::Ready(Ok(count));
         }
+
+        if self.read_bus.is_closed.load(Ordering::SeqCst) {
+            return Poll::Ready(Ok(0));
+        }
+
+        if self.is_nb.load(Ordering::SeqCst) {
+            return Poll::Ready(Err(InvocationError::WouldBlock));
+        }
+
+        *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
+        Poll::Pending
     }
 
-    fn write(&self, buffer_ptr: *const u8, len: usize) -> Result<usize, InvocationError> {
-        if self.write_bus.is_closed.load(Ordering::SeqCst) {
-            return Err(InvocationError::UnsupportedOperation); // Broken pipe
-        }
-        if len == 0 {
-            return Ok(0);
-        }
+    fn write_async(&self, buffer_ptr: *const u8, len: usize, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
+            if self.write_bus.is_closed.load(Ordering::SeqCst) {
+                return Poll::Ready(Err(InvocationError::UnsupportedOperation)); // Broken pipe
+            }
+            if len == 0 {
+                return Poll::Ready(Ok(0));
+            }
 
-        let mut temp_buf = [0u8; 512];
-        let to_write = min(len, temp_buf.len());
+            let mut temp_buf = [0u8; 512];
+            let to_write = min(len, temp_buf.len());
+            if !safe_copy_from(temp_buf.as_mut_ptr(), buffer_ptr, to_write) {
+                return Poll::Ready(Err(InvocationError::InvalidPointer));
+            }
 
-        if !safe_copy_from(temp_buf.as_mut_ptr(), buffer_ptr, to_write) {
-            return Err(InvocationError::InvalidPointer);
-        }
+            let mut bus = self.write_bus.buffer.lock();
 
-        loop { 
-            let mut wrote_data = false;
-            let mut count = 0;
-            let mut is_broken = false;
+            if self.write_bus.is_closed.load(Ordering::SeqCst) {
+                return Poll::Ready(Err(InvocationError::UnsupportedOperation));
+            }
 
-            {
-                let mut bus = self.write_bus.buffer.lock();
-                if self.write_bus.is_closed.load(Ordering::SeqCst) {
-                    is_broken = true;
-                } else if !bus.is_full() {
-                    count = bus.push_slice(&temp_buf[..to_write]);
-                    wrote_data = true;
-                } else if self.is_nb.load(Ordering::SeqCst) {
-                    return Err(InvocationError::WouldBlock);
+            if bus.is_full() {
+                if self.is_nb.load(Ordering::SeqCst) {
+                    return Poll::Ready(Err(InvocationError::WouldBlock));
                 }
+                *self.write_bus.write_waker.lock() = Some(cx.waker().clone());
+                return Poll::Pending;
             }
 
-            if is_broken {
-                return Err(InvocationError::UnsupportedOperation) 
+            let count = bus.push_slice(&temp_buf[..to_write]);
+
+            if let Some(waker) = self.write_bus.read_waker.lock().take() {
+                waker.wake();
             }
 
-            if wrote_data {
-                if count > 0 {
-                    self.write_bus.semaphore.signal();
-
-                    let int_state = interrupts_enabled();
-                    disable_interrupts();
-
-                    let mut wq = self.write_bus.read_waiters.lock();
-                    let thread = wq.pop();
-                    drop(wq);
-
-                    self.write_bus.multi_read_waiters.lock().wake_all();
-
-                    if int_state { enable_interrupts(); }
-
-                    if !thread.is_null() {
-                        wake_thread(thread);
-                    }
-                }
-                return Ok(count);
-            }
-            // block bc buffer is full
-            let int_state = interrupts_enabled();
-            disable_interrupts();
-
-            let sched = &mut get_core_data().scheduler;
-            let thread = sched.current_thread;
-            let mut wq = self.write_bus.write_waiters.lock();
-            unsafe {
-                (*thread).state = ThreadState::Blocked;
-            }
-            wq.push(thread);
-            drop(wq);
-
-            sched.schedule();
-
-            if int_state { enable_interrupts(); }
+            Poll::Ready(Ok(count))
         }
-    }
 
-    fn wait_for_signals(&self, signal: Signal) -> Result<usize, InvocationError> {
-        loop {
-            let mut should_block = false;
-            let mut is_write = false;
+    fn wait_for_signals_async(&self, signal: Signal, cx: &mut Context<'_>) -> Poll<Result<usize, InvocationError>> {
+        let mut should_block = false;
+        let mut is_write = false;
 
-            if signal.contains(Signal::READABLE) {
-                let bus = self.read_bus.buffer.lock();
-                if bus.is_empty() && !self.read_bus.is_closed.load(Ordering::SeqCst) {
-                    should_block = true;
-                    is_write = false;
-                }
-                drop(bus);
+        if signal.contains(Signal::READABLE) {
+            let bus = self.read_bus.buffer.lock();
+            if bus.is_empty() && !self.read_bus.is_closed.load(Ordering::SeqCst) {
+                should_block = true;
+                is_write = false;
             }
-
-            if signal.contains(Signal::WRITABLE) {
-                let bus = self.write_bus.buffer.lock();
-                if bus.is_full() && !self.write_bus.is_closed.load(Ordering::SeqCst) {
-                    should_block = true;
-                    is_write = true;
-                }
-                drop(bus);
-            }
-
-            if signal.contains(Signal::PEER_CLOSED) {
-                let bus = self.read_bus.buffer.lock();
-                if !self.read_bus.is_closed.load(Ordering::SeqCst) {
-                    should_block = true;
-                    is_write = false;
-                }
-                drop(bus);
-            }
-
-            if !should_block {
-                return Ok(0);
-            }
-
-            let int_state = interrupts_enabled();
-            disable_interrupts();
-
-            let sched = &mut get_core_data().scheduler;
-            let thread = sched.current_thread;
-            let mut wq = if is_write {
-                self.write_bus.write_waiters.lock()
-            } else {
-                self.read_bus.read_waiters.lock()
-            };
-
-            unsafe {
-                (*thread).state = ThreadState::Blocked;
-            }
-
-            wq.push(thread);
-            drop(wq);
-
-            sched.schedule();
-
-            if int_state { enable_interrupts(); }
+            drop(bus);
         }
+
+        if signal.contains(Signal::WRITABLE) {
+            let bus = self.write_bus.buffer.lock();
+            if bus.is_full() && !self.write_bus.is_closed.load(Ordering::SeqCst) {
+                should_block = true;
+                is_write = true;
+            }
+            drop(bus);
+        }
+
+        if signal.contains(Signal::PEER_CLOSED) {
+            let bus = self.read_bus.buffer.lock();
+            if !self.read_bus.is_closed.load(Ordering::SeqCst) {
+                should_block = true;
+                is_write = false;
+            }
+            drop(bus);
+        }
+
+        if !should_block {
+            return Poll::Ready(Ok(0));
+        }
+
+        if is_write {
+            *self.write_bus.write_waker.lock() = Some(cx.waker().clone());
+        } else {
+            *self.read_bus.read_waker.lock() = Some(cx.waker().clone());
+        }
+
+        Poll::Pending
     }
 }
 
 #[derive(Debug)]
 pub struct SocketFactory {}
 
+#[async_trait]
 impl KernelObject for SocketFactory {
     fn type_name(&self) -> &'static str {
         "SocketFactory"
     }
 
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::Socket(SocketOp::Create { .. }) => {
                 if !calling_rights.contains(AccessRights::CREATE) {

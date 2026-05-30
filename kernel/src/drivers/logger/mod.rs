@@ -5,6 +5,8 @@ use core::fmt::{
 use core::mem::MaybeUninit;
 use core::{ptr, str};
 
+use alloc::boxed::Box;
+use async_trait::async_trait;
 use limine::framebuffer::Framebuffer;
 use simple_psf::Psf;
 
@@ -186,12 +188,13 @@ fn putchar(c: char, col: u32, row: u32, font: &Psf, fb: &Framebuffer, fg: u32, b
 #[derive(Debug)]
 pub struct ScreenWriter {}
 
+#[async_trait]
 impl KernelObject for ScreenWriter {
     fn type_name(&self) -> &'static str {
         "ScreenWriter"
     }
 
-    fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
+    async fn invoke(&self, invocation: Invocation, calling_rights: AccessRights) -> Result<usize, InvocationError> {
         match invocation {
             Invocation::File(FileOp::Write { offset, buffer_ptr, len }) => {
                 if !calling_rights.contains(AccessRights::WRITE) {
@@ -203,7 +206,7 @@ impl KernelObject for ScreenWriter {
                 }
 
                 let mut buf = [0u8; 1024];
-                if !safe_copy_from(buf.as_mut_ptr(), buffer_ptr, len) {
+                if !safe_copy_from(buf.as_mut_ptr(), buffer_ptr as *const u8, len) {
                     return Err(InvocationError::InvalidPointer);
                 }
                 if let Ok(s) = str::from_utf8(&buf[..len]) {

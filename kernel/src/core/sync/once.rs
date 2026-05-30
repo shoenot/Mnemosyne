@@ -1,4 +1,5 @@
 use core::cell::UnsafeCell;
+use core::hint::spin_loop;
 use core::mem::MaybeUninit;
 use core::ops::Deref;
 use core::sync::atomic::{
@@ -40,6 +41,7 @@ impl<T> KernelOnceCell<T> {
                         // someone else initiated it in the middle
                         return unsafe { (*self.value.get()).assume_init_ref() };
                     }
+                    spin_loop();
                 }
             }
         }
@@ -56,5 +58,8 @@ impl<T> KernelOnceCell<T> {
 
 impl<T> Deref for KernelOnceCell<T> {
     type Target = T;
-    fn deref(&self) -> &Self::Target { unsafe { &(*self.value.get()).assume_init_ref() } }
+    fn deref(&self) -> &Self::Target { 
+        assert_eq!(self.state.load(Ordering::Acquire), READY, "KernelOnceCell accessed before init");
+        unsafe { &(*self.value.get()).assume_init_ref() } 
+    }
 }

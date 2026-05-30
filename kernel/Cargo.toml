@@ -12,6 +12,7 @@ test = false
 bench = false
 
 [dependencies]
+async-trait = "0.1.89"
 limine = "0.6.3"
 simple-psf = "0.1.2"
 vespertine-abi = { path = "../lib/vespertine-abi/" }
