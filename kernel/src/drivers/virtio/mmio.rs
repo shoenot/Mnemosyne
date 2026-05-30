@@ -16,6 +16,7 @@ pub struct VirtioCapability {
     pub notify_off_multiplier: u32
 }
 
+#[derive(Debug)]
 pub struct VirtioBlockDriver {
     pub bus: u8,
     pub slot: u8,

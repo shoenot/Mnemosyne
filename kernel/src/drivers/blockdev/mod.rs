@@ -1,5 +1,5 @@
 mod asyncbd;
-mod gpt;
-mod ext2;
+pub mod gpt;
+pub mod ext2;
 pub use asyncbd::AsyncBlockDevice;
 

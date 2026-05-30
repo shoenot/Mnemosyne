@@ -1,13 +1,17 @@
-use core::ptr;
+use core::{ptr, str};
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{slice, sync::Arc, vec::Vec};
 
-use crate::{core::sync::TicketLock, drivers::blockdev::{AsyncBlockDevice, ext2::structs::{DiskGroupDesc, DiskSuperblock}}, memory::{ALLOCATOR, BlockSize, HHDMOFFSET, calculate_order}};
+use crate::{core::{object::vfs::ROOT_DIRECTORY, sync::TicketLock}, drivers::blockdev::{AsyncBlockDevice, ext2::{cache::BlockCache, obj::Ext2Directory, structs::{DiskDirHeader, DiskGroupDesc, DiskInode, DiskSuperblock}}, gpt::GptTable}, memory::{ALLOCATOR, BlockSize, HHDMOFFSET, calculate_order}};
 
-mod structs;
+pub mod structs;
+pub mod obj;
+pub mod cache;
 
+#[derive(Debug)]
 pub struct Ext2FileSystem {
     pub partition: Arc<dyn AsyncBlockDevice>,
+    pub cache: BlockCache,
 
     pub block_size: u32,
     pub sectors_per_block: u32,
@@ -36,13 +40,14 @@ impl Ext2FileSystem {
         }
 
         let block_size = 1024 << sb.log_block_size;
+        let cache = BlockCache::new(partition.clone(), block_size as usize, 512);
         let sectors_per_block = block_size / 512;
 
         let inode_size = if sb.rev_level >= 1 {
             sb.inode_size
         } else {
             128
-        };
+        } as u32;
 
         let total_blocks = sb.blocks_count;
         let num_groups = (total_blocks + sb.blocks_per_group - 1) / sb.blocks_per_group;
@@ -53,7 +58,7 @@ impl Ext2FileSystem {
         let bgdt_start_block = if block_size == 1024 { 2 } else { 1 };
         let bgdt_start_sector = bgdt_start_block as u64 * sectors_per_block as u64;
 
-        let bgdt_alloc_bytes = (bgdt_sectors as usize * 512 + 4095);
+        let bgdt_alloc_bytes = bgdt_sectors as usize * 512 + 4095;
         let bgdt_alloc_order = calculate_order(bgdt_alloc_bytes);
         let bgdt_buf_phys = match ALLOCATOR.alloc_order(bgdt_alloc_order) {
             Some(a) => a,
@@ -80,11 +85,12 @@ impl Ext2FileSystem {
 
         Ok(Ext2FileSystem { 
             partition, 
+            cache,
             block_size, 
             sectors_per_block, 
             inodes_per_group: sb.inodes_per_group, 
             blocks_per_group: sb.blocks_per_group,
-            inode_size: sb.inode_size as u32,
+            inode_size,
             bgdt: TicketLock::new(bgdt_vec) 
         })
     }
@@ -98,9 +104,210 @@ impl Ext2FileSystem {
             return Ok(());
         }
 
-        let start_sector = block_id as u64 * self.sectors_per_block as u64;
-        let future = self.partition.read_sectors(start_sector, self.sectors_per_block, dest_phys)?;
-        future.await?;
-        Ok(())
+        self.cache.read_block(block_id as usize, dest_phys).await
     }
+
+    pub async fn read_inode(&self, inode_num: u32) -> Result<DiskInode, ()> {
+        if inode_num == 0 { return Err(()) };
+        let bg_index = (inode_num - 1) / self.inodes_per_group;
+        let local_inode_idx = (inode_num - 1) % self.inodes_per_group;
+
+        // unpack beginning block addr of target inode table from the bgdt
+        let inode_table_start_block = {
+            let bgdt = self.bgdt.lock();
+            if bg_index as usize >= bgdt.len() { return Err(()) };
+            bgdt[bg_index as usize].inode_table
+        };
+
+        let byte_offset = local_inode_idx * self.inode_size;
+        let target_logical_block = inode_table_start_block + (byte_offset / self.block_size);
+        let block_internal_offset = byte_offset % self.block_size;
+
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        if page_phys == 0 { return Err(()) };
+        let page_virt = page_phys + *HHDMOFFSET;
+
+        if self.read_block(target_logical_block, page_phys as u64).await.is_err() {
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Err(());
+        }
+
+        let inode = unsafe {
+            let src_ptr = (page_virt as *const u8).add(block_internal_offset as usize) as *const DiskInode;
+            ptr::read(src_ptr)
+        };
+
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+        Ok(inode)
+    }
+
+    pub async fn lookup_in_dir(&self, inode: &DiskInode, name: &str) -> Result<Option<u32>, ()> {
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+        if page_phys == 0 { return Err(()) };
+        let page_virt = page_phys + *HHDMOFFSET;
+
+        // walk thru 12 direct blk pointers
+        for direct_idx in 0..12 {
+            let block_id = unsafe { inode.data.blocks.direct[direct_idx] };
+            if block_id == 0 { continue };
+
+            if self.read_block(block_id, page_phys as u64).await.is_err() {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Err(());
+            }
+
+            let mut offset = 0;
+            while offset < self.block_size as usize {
+                unsafe {
+                    let entry_ptr = (page_virt as *const u8).add(offset) as *const DiskDirHeader;
+                    let inode_id = (*entry_ptr).inode;
+                    let rec_len = (*entry_ptr).record_length as usize;
+                    let name_len = (*entry_ptr).name_length as usize;
+
+                    if rec_len == 0 { break; }
+
+                    if inode_id != 0 && name_len > 0 && offset + 8 + name_len <= self.block_size as usize {
+                        let name_ptr = (entry_ptr as *const u8).add(8);
+                        let name_slice = slice::from_raw_parts(name_ptr, name_len);
+
+                        if let Ok(entry_name) = str::from_utf8(name_slice) {
+                            if entry_name == name {
+                                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                                return Ok(Some(inode_id));
+                            }
+                        }
+                    }
+                    offset += rec_len;
+                }
+            }
+        }
+        ALLOCATOR.free(page_phys, BlockSize::Normal);
+        Ok(None)
+    }
+
+    pub async fn resolve_file_block(&self, inode: &DiskInode, file_block_idx: usize) -> Result<u32, ()> {
+        let pointers_per_block = (self.block_size / 4) as usize;
+
+        // tier 1: direct blocks (indices 0 to 11)
+        if file_block_idx < 12 {
+            unsafe { return Ok(inode.data.blocks.direct[file_block_idx]); }
+        }
+
+        let mut remaining_idx = file_block_idx - 12;
+
+        // tier 2: singly indirect blocks
+        if remaining_idx < pointers_per_block {
+            let single_indirect_id = unsafe { inode.data.blocks.single_indirect };
+            if single_indirect_id == 0 { return Ok(0); } // data block hole configuration
+
+            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+            if page_phys == 0 { return Err(()); }
+            self.read_block(single_indirect_id, page_phys as u64).await?;
+
+            let physical_block_id = unsafe {
+                let table_ptr = (page_phys + *HHDMOFFSET) as *const u32;
+                ptr::read(table_ptr.add(remaining_idx))
+            };
+
+            ALLOCATOR.free(page_phys, BlockSize::Normal); 
+            return Ok(physical_block_id);
+        }
+
+        remaining_idx += pointers_per_block;
+
+        // tier 3: doubly indirect blocks
+        let blocks_per_double = pointers_per_block * pointers_per_block;
+        if remaining_idx < blocks_per_double {
+            let double_indirect_id = unsafe { inode.data.blocks.double_indirect }; //
+            if double_indirect_id == 0 { return Ok(0); }
+
+            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+            if page_phys == 0 { return Err(()); }
+            let page_virt = page_phys + *HHDMOFFSET; //
+
+            let level1_idx = remaining_idx / pointers_per_block;
+            let level2_idx = remaining_idx % pointers_per_block;
+
+            // load level 1 pointer map block
+            self.read_block(double_indirect_id, page_phys as u64).await?;
+            let single_indirect_id = unsafe { ptr::read((page_virt as *const u32).add(level1_idx)) };
+
+            if single_indirect_id == 0 {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Ok(0);
+            }
+
+            // load level 2 ultimate target block location pointer
+            self.read_block(single_indirect_id, page_phys as u64).await?;
+            let physical_block_id = unsafe { ptr::read((page_virt as *const u32).add(level2_idx)) };
+
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Ok(physical_block_id);
+        }
+
+        remaining_idx -= blocks_per_double;
+
+        // tier 4: triply indirect blocks (will it end plz)
+        let blocks_per_triple = blocks_per_double * pointers_per_block;
+        if remaining_idx < blocks_per_triple {
+            let triple_indirect_id = unsafe { inode.data.blocks.triple_indirect };
+            if triple_indirect_id == 0 { return Ok(0); }
+
+            let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
+            if page_phys == 0 { return Err(()); }
+            let page_virt = page_phys + *HHDMOFFSET;
+
+            let level1_idx = remaining_idx / blocks_per_double;
+            let level2_idx = (remaining_idx % blocks_per_double) / pointers_per_block;
+            let level3_idx = (remaining_idx % blocks_per_double) % pointers_per_block;
+
+            // read the triple indirect block 
+            self.read_block(triple_indirect_id, page_phys as u64).await?;
+            let double_indirect_id = unsafe { core::ptr::read((page_virt as *const u32).add(level1_idx)) };
+            if double_indirect_id == 0 {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Ok(0);
+            }
+
+            // read the doubly indirect block
+            self.read_block(double_indirect_id, page_phys as u64).await?;
+            let single_indirect_id = unsafe { core::ptr::read((page_virt as *const u32).add(level2_idx)) };
+            if single_indirect_id == 0 {
+                ALLOCATOR.free(page_phys, BlockSize::Normal);
+                return Ok(0);
+            }
+
+            // read the singly indirect block
+            self.read_block(single_indirect_id, page_phys as u64).await?;
+            let physical_block_id = unsafe { core::ptr::read((page_virt as *const u32).add(level3_idx)) };
+
+            ALLOCATOR.free(page_phys, BlockSize::Normal);
+            return Ok(physical_block_id);
+        }
+        Err(())
+    }
+}
+
+pub async fn mount_ext2_rootfs(raw_block_device: Arc<dyn AsyncBlockDevice>) -> Arc<Ext2Directory> {
+    let mut gpt = GptTable::parse(raw_block_device)
+        .await
+        .expect("Failed mounting GPT configuration table maps");
+
+    let partition = Arc::new(gpt.partitions.remove(0));
+
+    let ext2_fs = Arc::new(Ext2FileSystem::mount(partition)
+        .await
+        .expect("Failed mounting Ext2 arch metadata"));
+
+    let root_inode_data = ext2_fs.read_inode(2)
+        .await
+        .expect("Failed parsing root inode structs");
+
+    let root_dir_object = Arc::new(Ext2Directory {
+        fs: ext2_fs,
+        inode_num: 2,
+        inode_data: root_inode_data,
+    });
+
+    root_dir_object
 }

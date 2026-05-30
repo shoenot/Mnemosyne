@@ -1,4 +1,4 @@
-use core::task::{Context, Poll};
+use core::{pin::Pin, task::{Context, Poll}};
 
 use alloc::{boxed::Box, sync::Arc, task::Wake};
 use vespertine_abi::{HandleID, Invocation};
@@ -43,6 +43,28 @@ pub fn handle_sys_invoke(handle: HandleID, invocation: Invocation) -> Result<usi
                 }
                 sched.schedule();
                 if int_state { enable_interrupts(); } 
+            }
+        }
+    }
+}
+
+pub fn block_on<F: Future>(mut future: Pin<Box<F>>) -> F::Output {
+    let tcb = get_core_data().scheduler.get_current_thread();
+    let waker = Arc::new(ThreadWaker { thread: tcb }).into();
+    let mut context = Context::from_waker(&waker);
+
+    loop {
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(result) => return result,
+            Poll::Pending => {
+                let int_state = interrupts_enabled();
+                disable_interrupts();
+                let sched = &mut get_core_data().scheduler;
+                unsafe {
+                    (*tcb).state = ThreadState::Blocked;
+                }
+                sched.schedule();
+                if int_state { enable_interrupts() };
             }
         }
     }

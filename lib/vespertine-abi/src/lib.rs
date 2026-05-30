@@ -42,6 +42,7 @@ impl Invocation {
             Invocation::File(FileOp::Read { .. }) => AccessRights::READ,
             Invocation::File(FileOp::Write { .. }) => AccessRights::WRITE,
             Invocation::File(FileOp::Stat) => AccessRights::READ,
+            Invocation::File(FileOp::GetVmo) => AccessRights::READ,
             Invocation::Vmo(VmoOp::GetPage { .. }) => AccessRights::READ,
             Invocation::Vmo(VmoOp::Resize { .. }) => AccessRights::MUTATE,
             Invocation::Vmo(VmoOp::Clone { .. }) => AccessRights::CREATE,

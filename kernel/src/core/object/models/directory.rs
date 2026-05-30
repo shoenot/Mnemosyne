@@ -31,7 +31,7 @@ pub struct Directory {
 
 #[derive(Debug, Eq, PartialEq, PartialOrd, Ord)]
 pub struct Filename {
-    name: Box<str>,
+    pub name: Box<str>,
 }
 
 impl Borrow<str> for Filename {

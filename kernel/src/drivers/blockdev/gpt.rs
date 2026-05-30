@@ -2,6 +2,7 @@ use core::ops::Add;
 
 use alloc::{sync::Arc, vec::Vec};
 
+use crate::klogln;
 use crate::memory::calculate_order;
 
 use crate::{drivers::{blockdev::AsyncBlockDevice, virtio::blk::BlockTransferFuture}, memory::{ALLOCATOR, BlockSize, HHDMOFFSET}};
@@ -48,6 +49,7 @@ pub struct GptEntry {
     pub partition_name: [u16; 36],    // UTF-16LE
 }
 
+#[derive(Debug)]
 pub struct GptPartition {
     pub raw_device: Arc<dyn AsyncBlockDevice>,
     pub start_sector: u64,

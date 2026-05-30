@@ -6,10 +6,17 @@ use crate::core::object::models::memman::MemoryManager;
 use crate::core::object::models::procman::ProcessManager;
 use crate::core::object::models::socket::SocketFactory;
 use crate::core::object::vfs::{kernel_register_obj, mount_kernel_dir};
+use crate::core::sync::KernelOnceCell;
+use crate::drivers::blockdev::AsyncBlockDevice;
+use crate::drivers::blockdev::ext2::mount_ext2_rootfs;
 use crate::drivers::tar::{get_ramdisk_ptr, get_ramdisk_size, parse_tar};
 use crate::drivers::video::init_framebuffer;
+use crate::drivers::virtio::blk::VirtioBlockDevice;
+use crate::klogln;
 
 use alloc::sync::Arc;
+
+pub static BLOCK_DEVICE: KernelOnceCell<Arc<dyn AsyncBlockDevice>> = KernelOnceCell::new();
 
 pub async fn init_vfs() {
     let dev_dir = Arc::new(Directory::new());
@@ -52,4 +59,11 @@ pub async fn init_vfs() {
     let fb_obj = Arc::new(init_framebuffer());
     let fb_handle = kernel_register_obj(fb_obj, AccessRights::READ | AccessRights::WRITE | AccessRights::MUTATE);
     mount_kernel_dir("Framebuffer", fb_handle, dev_handle).await;
+
+    if let Some(blockdev) = BLOCK_DEVICE.get() {
+        let root = mount_ext2_rootfs(blockdev.clone()).await;
+        let handle = kernel_register_obj(root, AccessRights::READ | AccessRights::WRITE);
+        mount_kernel_dir("Disk", handle, HandleID(0)).await;
+        klogln!("[SUCCESS] Ext2 filesystem mounted at /Disk");
+    }
 }

@@ -1,8 +1,8 @@
 use core::{fmt::Debug, ptr::copy_nonoverlapping, sync::atomic::{AtomicUsize, Ordering}};
 
-use alloc::{collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, collections::btree_map::BTreeMap, sync::Arc, vec::Vec};
 
-use crate::{core::sync::TicketLock, memory::{ALLOCATOR, BlockSize, GLOBAL_PMM, HHDMOFFSET, pmm::{NORMAL_PAGE_SIZE, PF_PINNED}}};
+use crate::{core::{asynchronous::syscall_bridge::block_on, sync::TicketLock}, drivers::blockdev::{AsyncBlockDevice, ext2::{Ext2FileSystem, structs::DiskInode}}, memory::{ALLOCATOR, BlockSize, GLOBAL_PMM, HHDMOFFSET, pmm::{NORMAL_PAGE_SIZE, PF_PINNED}}};
 
 #[derive(Debug)]
 pub struct Vmo {
@@ -215,5 +215,98 @@ impl Drop for PinnedVmo {
                 pmm.pfndb[pfn].flags.fetch_and(!PF_PINNED, Ordering::SeqCst);
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct FileVmo {
+    pub anonymous_vmo: Arc<Vmo>,
+    pub fs: Arc<Ext2FileSystem>,
+    pub inode_num: u32,
+    pub inode_data: DiskInode
+}
+
+impl FileVmo {
+    pub fn new(fs: Arc<Ext2FileSystem>, inode_num: u32, inode_data: DiskInode, size: usize) -> Arc<Self> {
+        Arc::new(Self { anonymous_vmo: Vmo::new(size), fs, inode_num, inode_data })
+    }
+}	
+
+impl PagedBackingStore for FileVmo {
+    fn request_page(&self, offset: usize) -> Result<usize, ()> {
+        // check if page alr loaded in ram
+        let mut pages = self.anonymous_vmo.pages.lock();
+
+        let current_size = self.anonymous_vmo.size.load(Ordering::Relaxed);
+        if offset >= current_size {
+            return Err(());
+        }
+
+        if let Some(&pfn) = pages.get(&offset) {
+            if pfn != 0 {
+                return Ok(pfn);
+            }
+        }
+
+        // cache miss
+        let page_phys = ALLOCATOR.alloc(BlockSize::Normal) as usize;
+        if page_phys == 0 { return Err(()); }
+
+        let block_size = self.fs.block_size as usize;
+        let blocks_per_page = NORMAL_PAGE_SIZE / block_size;
+        let start_file_block = offset / block_size;
+
+        for i in 0..blocks_per_page {
+            let file_block_idx = start_file_block + i;
+            let dest_block_phys = page_phys + (i * block_size);
+
+            let resolve_fut = self.fs.resolve_file_block(&self.inode_data, file_block_idx);
+            let disk_block_id = block_on(Box::pin(resolve_fut)).map_err(|_| ())?;
+
+            let read_fut = self.fs.read_block(disk_block_id, dest_block_phys as u64);
+            block_on(Box::pin(read_fut))?;
+        }
+
+        pages.insert(offset, page_phys);
+        Ok(page_phys)
+    }
+
+    fn resize_object(&self, new_size: usize) -> Result<(), ()> {
+        self.anonymous_vmo.resize_object(new_size)
+    }
+
+    fn clone_range(&self, offset: usize, len: usize) -> Result<Arc<dyn PagedBackingStore>, ()> {
+        // cow clone: clones current physical pages anonymously 
+        // so child proc modifications dont write back to file
+        self.anonymous_vmo.clone_range(offset, len)
+    }
+
+    fn pin(self: Arc<Self>, offset: usize, len: usize) -> Result<PinnedVmo, ()> {
+        let current_size = self.anonymous_vmo.size.load(Ordering::Relaxed);
+        if offset + len > current_size {
+            return Err(());
+        } 
+
+        let start_page = offset / NORMAL_PAGE_SIZE;
+        let end_page = (offset + len).div_ceil(NORMAL_PAGE_SIZE);
+        let mut phys_addrs = Vec::new();
+
+        // ensure all pages are faulted/loaded
+        for i in start_page..end_page {
+            let page_offset = i * NORMAL_PAGE_SIZE;
+            let addr = self.request_page(page_offset)?;
+            phys_addrs.push(addr);
+        }
+
+        // pin pages in the pmm so they cant be reclaimed
+        let pmm = GLOBAL_PMM.lock();
+        for &addr in &phys_addrs {
+            let pfn = addr / NORMAL_PAGE_SIZE;
+            if pfn < pmm.pfndb.len() {
+                pmm.pfndb[pfn].flags.fetch_or(PF_PINNED, Ordering::SeqCst);
+            }
+        }
+
+        Ok(PinnedVmo { vmo: self, phys_addrs })
     }
 }

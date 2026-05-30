@@ -2,7 +2,7 @@ use core::{hint::spin_loop, pin::Pin, ptr::{addr_of, addr_of_mut, read_volatile,
 
 use alloc::vec::Vec;
 use vespertine_common::lock::TicketLock;
-use crate::drivers::blockdev::AsyncBlockDevice;
+use crate::{drivers::blockdev::AsyncBlockDevice, klogln};
 
 use crate::{drivers::virtio::mmio::{VirtioBlockDriver, init_virtio}, memory::{ALLOCATOR, BlockSize, HHDMOFFSET}, util::bitwise::{set_bit, unset_bit}};
 
@@ -16,6 +16,7 @@ pub struct VqDescriptor {
 
 
 #[repr(C, packed)]
+#[derive(Debug)]
 pub struct VqAvailableRing {
     pub flags: *mut u16,
     pub idx: *mut u16,
@@ -24,6 +25,7 @@ pub struct VqAvailableRing {
 }
 
 #[repr(C, packed)]
+#[derive(Debug)]
 pub struct VqUsedRing {
     pub flags: *mut u16,
     pub idx: *mut u16,
@@ -32,12 +34,14 @@ pub struct VqUsedRing {
 }
 
 #[repr(C, packed)]
+#[derive(Debug)]
 pub struct VqUsedElem {
     id: u32,
     len: u32,
 }
 
 #[repr(C)]
+#[derive(Debug)]
 pub struct Virtqueue {
     pub desc: *mut VqDescriptor,
     pub available: VqAvailableRing,
@@ -72,6 +76,7 @@ impl Drop for Virtqueue {
     }
 }
 
+#[derive(Debug)]
 pub struct VirtioBlockDevice {
     driver: VirtioBlockDriver,
     virtqueue: TicketLock<Virtqueue>,
@@ -292,6 +297,7 @@ pub const VIRTIO_BLK_T_IN: u32 = 0;     // READ
 pub const VIRTIO_BLK_T_OUT: u32 = 1;    // WRITE
 pub const VIRTIO_BLK_T_FLUSH: u32 = 4;    // FLUSH
 
+#[repr(C, packed)]
 pub struct VirtioBlkReqHeader {
     pub req_type: u32,
     pub reserved: u32,
@@ -316,6 +322,7 @@ impl VirtioBlockDevice {
         let drv = &self.driver;
 
         unsafe {
+
             let page_phys = ALLOCATOR.alloc(BlockSize::Normal);
             if page_phys == 0 { return Err(()) };
             let page_virt = page_phys + *HHDMOFFSET;
@@ -416,6 +423,7 @@ impl Future for BlockTransferFuture {
         unsafe {
             let status_ptr = (self.page_phys + 512 + *HHDMOFFSET) as *const u8;
             let status = read_volatile(status_ptr);
+
 
             if status != 0xFF {
                 // the transfer is complete

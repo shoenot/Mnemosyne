@@ -1,16 +1,25 @@
+use core::fmt::Debug;
+
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 pub struct DiskBlockPointers {
-    direct: [u32; 12],
-    single_indirect: u32,
-    double_indirect: u32,
-    triple_indirect: u32,
+    pub direct: [u32; 12],
+    pub single_indirect: u32,
+    pub double_indirect: u32,
+    pub triple_indirect: u32,
 }
 
 #[repr(C, packed)]
+#[derive(Clone, Copy)]
 pub union FileData {
     pub blocks: DiskBlockPointers,
     pub symlink_embedded: [u8; 60]
+}
+
+impl Debug for FileData {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(f, "File Data Union")
+    }
 }
 
 #[repr(C, packed)]
@@ -85,6 +94,7 @@ pub struct DiskGroupDesc {
 }
 
 #[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 pub struct DiskInode {
     pub mode: u16,
     pub uid: u16,
@@ -106,3 +116,10 @@ pub struct DiskInode {
     pub osd2: [u8; 12],
 }
 
+#[repr(C, packed)]
+pub struct DiskDirHeader {
+    pub inode: u32,
+    pub record_length: u16,
+    pub name_length: u8,
+    pub file_type: u8,
+}

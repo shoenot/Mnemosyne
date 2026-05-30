@@ -21,6 +21,7 @@ use crate::core::time;
 use crate::drivers::pci::{PCI_DEVICES, enumerate_pci_devices};
 use crate::drivers::virtio::blk::{VirtioBlockDevice, init_block_device, virtio_blk_poll_thread};
 use crate::drivers::virtio::mmio::init_virtio;
+use crate::tasks::vfs_init::BLOCK_DEVICE;
 use alloc::sync::Arc;
 use arch::x86_64::hcf;
 use arch::{
@@ -99,49 +100,21 @@ pub extern "C" fn kmain() -> ! {
 
     init_virtio();
 
-    let mut blk = init_block_device().unwrap();
+    let blk = init_block_device().expect("Failed to init block device");
+    let blk_arc = Arc::new(blk);
+    let blk_ptr = Arc::as_ptr(&blk_arc) as usize;
 
-    let blk_ptr = &mut blk as *mut VirtioBlockDevice as usize;
+    let blk_dyn: Arc<dyn AsyncBlockDevice> = blk_arc.clone();
+    BLOCK_DEVICE.get_or_init(|| blk_dyn);
+
+
+
     spawn_kernel_thread(
         virtio_blk_poll_thread as *const () as usize,
         blk_ptr, 
         ThreadPriority::HIGH, 
         KERNEL_PROCESS.clone(),
     );
-
-    let executor = Executor::new();
-
-    executor.spawn(async move {
-        klogln!("[INFO] Async read verification task started");
-
-        let buf_phys = ALLOCATOR.alloc(BlockSize::Normal);
-        let buf_virt = buf_phys + *HHDMOFFSET;
-
-        let blk_dev = blk_ptr as *mut VirtioBlockDevice;
-        match unsafe { (*blk_dev).read_sectors(0, 1, buf_phys as u64) } {
-            Ok(future) => {
-                klogln!("[INFO] Waiting for read future...");
-                if future.await.is_ok() {
-                    klogln!("[SUCCESS] Async read success. Sector 0 data:");
-                    let mut data = [0u8; 16];
-                    for i in 0..16 {
-                        let addr = buf_virt + i;
-                        let byte = unsafe {
-                            read_volatile(addr as *const u8)
-                        };
-                        data[i] = byte;
-                    }
-                    klogln!("{}", str::from_utf8(&data).expect(""));
-                } else {
-                    klogln!("[ERROR] Async read failed");
-                }
-            },
-            Err(_) => {
-                klogln!("[ERROR] Async read failed");
-            }
-        }
-    }); 
-
 
     time::init_realtime();
     klogln!("[SUCCESS] Initialized Real Time Clock.");

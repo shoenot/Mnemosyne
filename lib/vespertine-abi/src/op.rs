@@ -31,6 +31,7 @@ pub enum FileOp {
     Read { offset: usize, buffer_ptr: usize, len: usize },
     Write { offset: usize, buffer_ptr: usize, len: usize },
     Stat,
+    GetVmo,
 }
 
 #[repr(C)]

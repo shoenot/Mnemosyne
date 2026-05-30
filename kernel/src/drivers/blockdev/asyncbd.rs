@@ -1,6 +1,8 @@
+use core::fmt::Debug;
+
 use crate::drivers::virtio::blk::BlockTransferFuture;
 
-pub trait AsyncBlockDevice: Send + Sync {
+pub trait AsyncBlockDevice: Send + Sync + Debug {
     fn read_sectors(&self, 
         sector: u64, 
         sectors_count: u32, 
